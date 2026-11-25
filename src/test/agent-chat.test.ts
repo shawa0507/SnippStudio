@@ -110,17 +110,52 @@ test('stream-json lines: init, words, tools, results; unknown and broken lines g
   assert.deepEqual(result, [{ type: 'result', text: 'Done.', isError: false, seconds: 4.2, costUsd: 0.161, turns: 2 }])
   const error = chatEventsFrom(JSON.stringify({ type: 'error', error: { message: 'boom' } }))
   assert.deepEqual(error, [{ type: 'error', message: 'boom' }])
-  // The context after a turn: the usage counts, and the model's own window.
+  // The context after a turn: the conversation's size and the model's own
+  // window. The size is the last answer's own usage when the turn had one…
   const withContext = chatEventsFrom(JSON.stringify({
     type: 'result', subtype: 'success', is_error: false, duration_ms: 1000,
     usage: { input_tokens: 25000, cache_read_input_tokens: 2000, cache_creation_input_tokens: 500, output_tokens: 120 },
     modelUsage: { 'm[1m]': { contextWindow: 1048576 } }
-  }))
+  }), 0, 18420)
   assert.equal(withContext[0].type, 'result')
-  assert.deepEqual(withContext[0].type === 'result' ? withContext[0].context : null, { used: 27620, window: 1048576 })
+  assert.deepEqual(withContext[0].type === 'result' ? withContext[0].context : null, { used: 18420, window: 1048576 })
+  // …and the result's own sum only when no answer was seen (a failed turn).
+  const summed = chatEventsFrom(JSON.stringify({
+    type: 'result', subtype: 'error_during_execution', is_error: true,
+    usage: { input_tokens: 25000, cache_read_input_tokens: 2000, cache_creation_input_tokens: 500, output_tokens: 120 },
+    modelUsage: { 'm[1m]': { contextWindow: 1048576 } }
+  }))
+  assert.deepEqual(summed[0].type === 'result' ? summed[0].context : null, { used: 27620, window: 1048576 })
   // A result without the numbers says nothing about the context.
   const plain = chatEventsFrom(JSON.stringify({ type: 'result', subtype: 'success', is_error: false }))
   assert.equal(plain[0].type === 'result' ? plain[0].context : 'x', undefined)
+})
+
+test('each answer reports the size; a subagent is another conversation; the meter keeps its window', () => {
+  const answer = chatEventsFrom(JSON.stringify({
+    type: 'assistant',
+    parent_tool_use_id: null,
+    message: {
+      content: [{ type: 'text', text: 'Hi.' }],
+      usage: { input_tokens: 4, cache_read_input_tokens: 17000, cache_creation_input_tokens: 120, output_tokens: 200 }
+    }
+  }))
+  assert.deepEqual(answer, [{ type: 'usage', used: 17324 }, { type: 'text', text: 'Hi.' }])
+  const sub = chatEventsFrom(JSON.stringify({
+    type: 'assistant',
+    parent_tool_use_id: 't9',
+    message: { content: [{ type: 'text', text: 'x' }], usage: { input_tokens: 9000, output_tokens: 50 } }
+  }))
+  assert.deepEqual(sub, [{ type: 'text', text: 'x' }])
+  const store = useChat
+  store.setState({ context: { used: 17600, window: 1048576 } })
+  store.getState().event({ type: 'usage', used: 18420 })
+  assert.deepEqual(store.getState().context, { used: 18420, window: 1048576 })
+  // Before a window is known there is nothing to measure against; the
+  // result line that follows carries it.
+  store.setState({ context: null })
+  store.getState().event({ type: 'usage', used: 18420 })
+  assert.equal(store.getState().context, null)
 })
 
 test('the child keeps the user configuration, not the desktop host session', () => {

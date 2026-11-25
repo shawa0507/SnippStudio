@@ -84,6 +84,10 @@ export function chatModels(env: Record<string, string | undefined> = process.env
   return { current: (env.ANTHROPIC_MODEL ?? '').trim() || null, suggestions }
 }
 
+function tokens(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+}
+
 /** The text of a tool result, short enough for one card. */
 function summaryOf(content: unknown): string {
   const texts: string[] = []
@@ -101,8 +105,11 @@ function summaryOf(content: unknown): string {
  * One line of the CLI's stream-json output, as page events. Pure, so the
  * shapes are tested without a process; unknown lines give nothing (the CLI
  * adds kinds between versions, and one of them must not end a chat).
+ * `lastUsed` is the current conversation's size as the last assistant
+ * message reported it: the result's own usage is the turn's sum over every
+ * API call, which counts the prompt again at each tool step.
  */
-export function chatEventsFrom(line: string, fallbackWindow = 0): ChatEvent[] {
+export function chatEventsFrom(line: string, fallbackWindow = 0, lastUsed = 0): ChatEvent[] {
   let message: Record<string, unknown>
   try {
     message = JSON.parse(line) as Record<string, unknown>
@@ -131,9 +138,15 @@ export function chatEventsFrom(line: string, fallbackWindow = 0): ChatEvent[] {
     }]
   }
   if (type === 'assistant' || type === 'user') {
-    const content = (message.message as { content?: unknown } | undefined)?.content
+    const inner = message.message as { content?: unknown; usage?: Record<string, unknown> } | undefined
+    const content = inner?.content
     if (!Array.isArray(content)) return []
-    const events: ChatEvent[] = []
+    // The message's own usage is its request's prompt plus its answer: the
+    // conversation's size right then. A subagent's message (a tool call
+    // raised it) is another conversation with its own window, so it is not
+    // this chat's size.
+    const used = tokens(inner?.usage?.input_tokens) + tokens(inner?.usage?.cache_read_input_tokens) + tokens(inner?.usage?.cache_creation_input_tokens) + tokens(inner?.usage?.output_tokens)
+    const events: ChatEvent[] = type === 'assistant' && !message.parent_tool_use_id && used > 0 ? [{ type: 'usage', used }] : []
     for (const block of content) {
       if (!block || typeof block !== 'object') continue
       const b = block as Record<string, unknown>
@@ -152,8 +165,10 @@ export function chatEventsFrom(line: string, fallbackWindow = 0): ChatEvent[] {
   if (type === 'result') {
     const seconds = typeof message.duration_ms === 'number' ? message.duration_ms / 1000 : undefined
     const usage = (message.usage ?? {}) as Record<string, unknown>
-    const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
-    const used = n(usage.input_tokens) + n(usage.cache_read_input_tokens) + n(usage.cache_creation_input_tokens) + n(usage.output_tokens)
+    const summed = tokens(usage.input_tokens) + tokens(usage.cache_read_input_tokens) + tokens(usage.cache_creation_input_tokens) + tokens(usage.output_tokens)
+    // The last assistant message's size when the turn had one; the turn's
+    // sum only when it did not (a failed turn before any answer).
+    const used = lastUsed > 0 ? lastUsed : summed
     let window = 0
     const perModel = message.modelUsage
     if (perModel && typeof perModel === 'object') {
@@ -228,6 +243,9 @@ export class ClaudeChat {
   private stopping = false
   private exited = false
   private textThisTurn = false
+  /** The conversation's size as the turn's last assistant message reported
+   *  it (0 before the turn's first answer). */
+  private lastUsed = 0
   private phaseValue: ChatPhase = 'off'
 
   constructor(private readonly options: ClaudeChatOptions) {}
@@ -284,6 +302,7 @@ export class ClaudeChat {
     if (!this.alive()) await this.start()
     if (!this.alive() || !this.child) return
     this.textThisTurn = false
+    this.lastUsed = 0
     this.emit({ type: 'turn', state: 'start' })
     this.child.stdin.write(chatUserLine(text, images) + '\n')
   }
@@ -317,7 +336,8 @@ export class ClaudeChat {
 
   private line(line: string): void {
     const fallbackWindow = Number(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) || 0
-    for (const event of chatEventsFrom(line, fallbackWindow)) {
+    for (const event of chatEventsFrom(line, fallbackWindow, this.lastUsed)) {
+      if (event.type === 'usage') this.lastUsed = event.used
       if (event.type === 'text') this.textThisTurn = true
       // (A failed turn whose words never arrived: the result's text is the
       // only account of it, said as the error.)

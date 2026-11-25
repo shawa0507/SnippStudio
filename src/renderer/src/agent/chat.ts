@@ -322,6 +322,13 @@ export const useChat = create<ChatUi>((set, get) => ({
       case 'thinking':
         set({ thinking: true })
         return
+      // Each answer of the turn restates the conversation's size; the window
+      // stays the one the last result named (it changes only with the model).
+      case 'usage': {
+        const current = get().context
+        if (current && current.window > 0) set({ context: { used: event.used, window: current.window } })
+        return
+      }
       case 'tool':
         set((s) => {
           const at = s.items.findIndex((x) => x.kind === 'tool' && x.id === event.id)

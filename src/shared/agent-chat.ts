@@ -24,15 +24,19 @@ export type ChatEvent =
   /** The agent is thinking (no words are shown). */
   | { type: 'thinking' }
   | { type: 'tool'; id: string; name: string; input?: unknown; state: 'running' | 'done' | 'error'; summary?: string }
+  /** How large the conversation is after one API call of the turn: that
+   *  call's prompt plus its answer. (A turn's result sums every call, so a
+   *  tool loop counts the same prompt once per step; this is the real size.) */
+  | { type: 'usage'; used: number }
   /** The turn ended: the result line (time, cost), whether it failed, and
-   *  the context the next turn starts from (the CLI's own usage numbers). */
+   *  the context the next turn starts from. */
   | { type: 'result'; text?: string; isError: boolean; seconds?: number; costUsd?: number; turns?: number; context?: ChatContext }
   | { type: 'error'; message: string }
   /** A turn started or ended: the input box's state. */
   | { type: 'turn'; state: 'start' | 'end' }
 
-/** The conversation's size against the model's window, as the CLI reported
- *  it after a turn. */
+/** The conversation's size against the model's window: the latest answer's
+ *  own usage (not the turn's sum over its tool steps). */
 export interface ChatContext {
   used: number
   window: number
