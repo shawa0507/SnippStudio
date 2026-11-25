@@ -807,6 +807,21 @@ test('C6: an apply that chooses nothing (every item uncertain) is a dropped op t
   assert.match(await editTool({ ops: [{ op: 'apply', result: 'r9' }], base: read() }, ctx), /Nothing applied[\s\S]*apply r9: no item is chosen/)
 })
 
+test('the edit tool: direct:true is one step on the timeline; a waiting draft is never jumped over', async () => {
+  open(talk(20))
+  const before = S().projectVersion
+  const out = await editTool({ ops: [{ op: 'marker.add', time: 2, note: 'direct' }], base: read(), direct: true }, ctxOf())
+  assert.match(out, /Applied \(one undo step\)/)
+  assert.equal(currentDraft(), null, 'no draft was made')
+  assert.ok((S().project.markers ?? []).some((m) => m.note === 'direct'))
+  assert.notEqual(S().projectVersion, before)
+  // (A draft the user has not answered is theirs: direct waits for it.)
+  open(talk(20))
+  await edit([{ op: 'marker.add', time: 3, note: 'draft' }], read())
+  assert.ok(currentDraft())
+  await assert.rejects(editTool({ ops: [{ op: 'marker.add', time: 4, note: 'x' }], base: read(), direct: true }, ctxOf()), /A draft is waiting/)
+})
+
 // ---- Part II (FAZ4A-PLAN.md 9): the three rules only the oracle run saw ----------
 // N39, N40 and N49 of scripts/mutate.mjs broke no unit test: only the short
 // oracle run saw them. The sequences it saw them in, kept as fixed runs (the

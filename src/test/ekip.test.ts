@@ -40,17 +40,15 @@ test('a label comes off the call (the tool never sees it), cleaned, never an err
   assert.deepEqual(empty.args, { start: 0 })
 })
 
-test('the definitions: one short property in every tool, one sentence in the instructions, under 12 000', () => {
+test('the definitions: one short property in every tool, one sentence in the instructions, under 14 000', () => {
   for (const t of agentTools()) assert.deepEqual((t.inputSchema as { properties: Record<string, unknown> }).properties.as, { type: 'string' }, t.name)
   assert.match(SERVER_INSTRUCTIONS, /Subagents may add as:"<name>" \(≤12 letters, digits, -\) to each call\.$/)
   // (No visual or style advice in what the agent is sent: principle 6.)
   for (const w of ['colour', 'color', 'flag', 'chip', 'style']) assert.ok(!SERVER_INSTRUCTIONS.toLowerCase().includes(w), w)
   const size = definitionsSize()
-  // 11 637 before; 240 for the ten properties, 61 for the sentence: 11 938.
-  // Step 3 (EKIP-3-PLAN.md): the region ops in edit, paid for by shortening.
-  // cogalt, 23 Nov: 11 953 (clip.duplicate, clip.add by clip id or file name, job start + wait).
-  assert.equal(size, 11_953, String(size))
-  assert.ok(size <= 12_000)
+  // 11 953 after the worker label and cogalt; 12 961 with the media tool;
+  // new_project adds the clean start: the limit is 14 000.
+  assert.ok(size <= 14_000, String(size))
 })
 
 test('workers in the order first seen; a run of calls with no label has no team', () => {

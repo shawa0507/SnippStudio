@@ -124,6 +124,15 @@ function GeneralPage(): JSX.Element {
           <span className="ui-field-more">{t('settings.general.autosave.text')}</span>
         </p>
       </div>
+      <div className="settings-group">
+        <div className="settings-label">{t('settings.general.restart')}</div>
+        <p className="settings-text">{t('settings.general.restart.hint', { app: PRODUCT_NAME })}</p>
+        <div className="settings-row">
+          <Button size="sm" variant="secondary" icon="rotate-cw" onClick={() => requestShell('restart')} testid="settings.general.restart">
+            {t('settings.general.restart')}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -161,11 +170,13 @@ function AgentPage(): JSX.Element {
   const status = useSession((s) => s.status)
   const [catalog, setCatalog] = useState<AgentInstallation[] | null>(null)
   const [more, setMore] = useState(false)
+  const [autoRepair, setAutoRepair] = useState<boolean | null>(null)
   useEffect(() => {
     listenSession()
     void refreshSession()
     let live = true
     void api?.agentSession.catalog().then((c) => { if (live) setCatalog(c) }, () => { if (live) setCatalog([]) })
+    void api?.agentSession.autoRepair().then((on) => { if (live) setAutoRepair(on) }, () => { if (live) setAutoRepair(true) })
     return () => { live = false }
   }, [])
   const server = status?.server
@@ -189,6 +200,19 @@ function AgentPage(): JSX.Element {
             <div className="settings-label">{t('settings.agent.key')}</div>
             <p className="settings-text">{t('settings.agent.keyHelp')}</p>
             <RenewKey />
+            {autoRepair !== null && (
+              <Field label={t('settings.agent.autoRepair')} hint={t('settings.agent.autoRepair.hint')} more={t('settings.agent.autoRepair.more')}>
+                <Toggle
+                  checked={autoRepair}
+                  ariaLabel={t('settings.agent.autoRepair')}
+                  onChange={(on) => {
+                    setAutoRepair(on)
+                    void api?.agentSession.setAutoRepair(on).then((kept) => setAutoRepair(kept)).catch(() => setAutoRepair(autoRepair))
+                  }}
+                  testid="settings.agent.autoRepair"
+                />
+              </Field>
+            )}
             <p className="settings-text" data-testid="settings.agent.plan">{t('agent.picker.plan')}</p>
             <p className="settings-text" data-testid="settings.agent.privacy">{t('settings.agent.privacy')}</p>
             <p className="settings-note" role="note" data-testid="settings.agent.security">{t('settings.agent.security')}</p>

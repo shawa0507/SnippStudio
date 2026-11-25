@@ -26,7 +26,7 @@ export const ANALYSIS_WORDS: Readonly<Record<string, string>> = {
 }
 
 /** The tools that have a sentence (every tool the app serves). */
-export const TOOL_WORDS: readonly string[] = ['project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'code_clip', 'notes', 'job', 'wait']
+export const TOOL_WORDS: readonly string[] = ['project', 'new_project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'code_clip', 'media', 'notes', 'job', 'wait']
 
 /**
  * What a call is doing (while it runs) or did (the bar keeps saying it in
@@ -38,6 +38,8 @@ export function activityWords(e: ToolEvent, draft: boolean): Words {
   switch (e.tool) {
     case 'project':
       return { key: 'd22c.act.project', params: {} }
+    case 'new_project':
+      return { key: 'd22c.act.newProject', params: {} }
     case 'transcript':
       return { key: e.kind === 'words' ? 'd22c.act.transcript.words' : 'd22c.act.transcript', params: {} }
     case 'frames': {
@@ -55,6 +57,8 @@ export function activityWords(e: ToolEvent, draft: boolean): Words {
       return { key: draft ? `d22c.act.draft.${form(e.ops ?? 0)}` : `d22c.act.direct.${form(e.ops ?? 0)}`, params: { n: e.ops ?? 0 } }
     case 'code_clip':
       return { key: e.kind === 'check' ? 'd22c.act.codeCheck' : 'd22c.act.codeClip', params: {} }
+    case 'media':
+      return { key: e.kind === 'replace' ? 'd22c.act.mediaReplace' : 'd22c.act.mediaImport', params: {} }
     case 'notes':
       return { key: 'd22c.act.notes', params: {} }
     case 'job':

@@ -82,7 +82,7 @@ test('K13: agent.json is written whole or not at all (a temp file beside it, ren
     const one = { enabled: true, token: 'a'.repeat(43) }
     await writeAgentSettings(dir, one)
     assert.deepEqual(await readAgentSettings(dir), one)
-    assert.deepEqual((await fs.readdir(dir)).sort(), ['agent.json'], 'no temp file is left')
+    assert.deepEqual((await fs.readdir(dir)).sort(), ['agent.json', 'agent.json.bak'], 'no temp file is left')
     // Written again: the new one, whole.
     const two = { enabled: false, token: 'b'.repeat(43) }
     await writeAgentSettings(dir, two)

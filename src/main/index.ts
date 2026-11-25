@@ -90,7 +90,9 @@ app.setName(appNameFor(CHANNEL))
 let agentHost: AgentHost | null = null
 /** The agent connection's IPC (agent-session-ipc.ts): its read-only
  *  questions to installed agent programs end with their window or the app. */
-let agentSession: { stop: () => void; windowGone: (contentsId: number) => void } | null = null
+let agentSession: { stop: () => void; windowGone: (contentsId: number) => void; repairDetected: () => Promise<string[]> } | null = null
+/** The last automatic repair a refused key started (401s come in runs). */
+let lastAutoRepair = 0
 let lastEditorId: number | null = null
 function agentTarget(): { win: BrowserWindow; projectPath: string | null } | null {
   const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && editorWindows.has(w.webContents.id))
@@ -205,6 +207,29 @@ function registerIpc() {
     const state = editorState(event.sender)
     state.forceClose = true
     ownerWindow(event.sender)?.destroy()
+  })
+  // A clean restart (the page saved first; --reload asks it to): the app
+  // starts again with the same project, no quit dialog and no recovery box.
+  ipcMain.handle('app:restart', (event) => {
+    const win = ownerWindow(event.sender)
+    if (!win || win.isDestroyed()) return { ok: false, error: 'no window' }
+    // (Another editor window's unsaved work is not thrown away: it saves or
+    // the restart waits.)
+    if ([...editorWindows.values()].some((s) => s.dirty)) return { ok: false, error: 'unsaved changes' }
+    for (const s of editorWindows.values()) {
+      s.forceClose = true
+      if (s.recoveryPath) {
+        try {
+          rmSync(s.recoveryPath, { force: true })
+          claimedRecoveryPaths.delete(foldKey(s.recoveryPath))
+        } catch {
+          /* the next launch offers it */
+        }
+      }
+    }
+    app.relaunch({ args: restartArgs(process.argv, editorState(event.sender).currentProjectPath) })
+    app.exit(0)
+    return { ok: true }
   })
   // An export or a transcription keeps the PC from sleeping while it runs
   // (awake.ts). A page that closes, reloads or crashes lets go of its holds.
@@ -529,6 +554,14 @@ if (!isPrimaryInstance) app.quit()
  * project opened an empty editor.
  */
 function projectPathFromArgv(argv: string[]): string | null {
+  // A restart names the project it had open (`--reopen=<path>`): the path is
+  // the one this app itself wrote, never one an agent chose.
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i] ?? ''
+    const raw = /^--reopen=(.+)$/i.test(a) ? a.slice('--reopen='.length) : a.toLowerCase() === '--reopen' ? argv[i + 1] : undefined
+    const p = raw?.replace(/^"(.*)"$/, '$1').trim()
+    if (p && isLocalFilePath(p) && existsSync(path.normalize(p))) return path.normalize(p)
+  }
   // Every argument, not argv.slice(1): at launch argv[0] is the executable, but
   // the array handed to `second-instance` is not guaranteed to start with it,
   // and dropping the first entry there dropped the file. The executable is
@@ -544,10 +577,53 @@ function projectPathFromArgv(argv: string[]): string | null {
   return null
 }
 
+/** A project file named on the command line that is not there (a typo
+ *  opened a blank editor without a word: the window looked like a new
+ *  project). Null when every name is fine. */
+function missingProjectArg(argv: string[]): string | null {
+  for (const arg of argv) {
+    if (!arg || arg.startsWith('-')) continue
+    if (!/\.(snipp|snip|autocut)$/i.test(arg)) continue
+    if (!isLocalFilePath(arg)) continue
+    const p = path.normalize(arg)
+    if (!existsSync(p)) return p
+  }
+  return null
+}
+
+/** The arguments a clean restart comes back with: the same ones, without
+ *  --reload, and with this window's project named (the app may have been
+ *  launched without one, and a project picked in it is not in argv). */
+function restartArgs(argv: string[], project: string | null): string[] {
+  const rest = argv.slice(1).filter((a) => !/^--reload$/i.test(a) && !/^--reopen(?:=|$)/i.test(a))
+  const had = project && rest.some((a) => foldKey(normalize(a)) === foldKey(normalize(project)))
+  return project && !had ? [...rest, `--reopen=${project}`] : rest
+}
+
+/** `--reload`: the running app saves and starts again (a code change, a new
+ *  build). */
+const reloadArg = (argv: string[]): boolean => argv.some((a) => /^--reload$/i.test(a))
+
 /** A repeated icon launch opens a blank editor. A project file opens in its own
  * editor too, unless that exact file is already open — concurrent writes to
  * one .snipp file are never safe, so that window is focused instead. */
 function openLaunchInEditor(argv: string[]): void {
+  // --reload: the open editor saves and the app starts again, instead of a
+  // second bare window (the window's own close would otherwise ask about
+  // unsaved changes and wait).
+  if (reloadArg(argv)) {
+    const win =
+      BrowserWindow.getFocusedWindow() && editorWindows.has(BrowserWindow.getFocusedWindow()!.webContents.id)
+        ? BrowserWindow.getFocusedWindow()!
+        : BrowserWindow.getAllWindows().find((w) => w.webContents.id === lastEditorId && editorWindows.has(w.webContents.id)) ??
+          BrowserWindow.getAllWindows().find((w) => editorWindows.has(w.webContents.id))
+    if (win) {
+      focusEditorWindow(win)
+      win.webContents.send('app:save-and-restart')
+      return
+    }
+    // (Nothing open: --reload is a plain launch.)
+  }
   if (openFilmLaunch(argv)) return
   const p = projectPathFromArgv(argv)
   if (p) {
@@ -558,6 +634,24 @@ function openLaunchInEditor(argv: string[]): void {
         return
       }
     }
+  }
+  // A named project that is not there: said, not opened as a blank editor.
+  const missing = p ? null : missingProjectArg(argv)
+  if (missing) {
+    const open = BrowserWindow.getAllWindows().find((w) => editorWindows.has(w.webContents.id))
+    const show = (target: BrowserWindow | null): void => {
+      const box = { type: 'error' as const, message: mt('open.missing'), detail: missing, buttons: [mt('ok')] }
+      if (target) void dialog.showMessageBox(target, box)
+      else void dialog.showMessageBox(box)
+    }
+    if (open) {
+      focusEditorWindow(open)
+      show(open)
+      return
+    }
+    const win = createWindow(null)
+    win.once('ready-to-show', () => show(win))
+    return
   }
   createWindow(p)
 }
@@ -723,6 +817,18 @@ app.whenReady().then(() => {
     // (An agent from outside began or ended: the editor windows ask again.)
     changed: () => {
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && editorWindows.has(w.webContents.id)) w.webContents.send('agentLink:changed')
+    },
+    // (A key was refused: once a minute, repair the detected programs whose
+    // registration still holds another one. The refused request's own
+    // program still has to reconnect or restart.)
+    keyRefused: () => {
+      const now = Date.now()
+      if (now - lastAutoRepair < 60_000) return
+      lastAutoRepair = now
+      void agentSession?.repairDetected().then((fixed) => {
+        if (!fixed.length) return
+        for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && editorWindows.has(w.webContents.id)) w.webContents.send('agentLink:changed')
+      })
     }
   })
   void agentHost.init()

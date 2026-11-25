@@ -9,7 +9,7 @@ import { app, dialog } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isLocalFilePath, isSafeOutput } from '../security'
-import { watchFilm } from '../codefilm'
+import { filmStamp, watchFilm } from '../codefilm'
 import { keepVersions, makeAnimFolder } from '../codefilm-versions'
 import { filmValues, forgetScans, scanFolder, writeValues } from '../codefilm-values'
 import { addCodeTemplate, CODE_TEMPLATE_IDS } from '../code-templates'
@@ -198,6 +198,12 @@ export function registerMediaIpc(): void {
   })
   // The addresses the main process refused a film (main/film-fence.ts).
   ipcMain.handle('codefilm:blocked', (_e, id: unknown) => (typeof id === 'string' ? films.blocked(id) : []))
+  // The film folder's files as they are now: the frame paths compare it
+  // before drawing, so an edit is never missed by a watcher event.
+  ipcMain.handle('codefilm:stamp', (_e, id: unknown) => {
+    const root = typeof id === 'string' ? films.root(id) : null
+    return root ? filmStamp(root) : null
+  })
   // The film this window was opened for (`--code-film`), once; its project's
   // folder is made so the page can save straight to it.
   ipcMain.handle('codefilm:pending', async (event) => {
@@ -233,6 +239,77 @@ export function registerMediaIpc(): void {
     mine.set(id, watchFilm(root, (files) => {
       if (!sender.isDestroyed()) sender.send('codefilm:changed', { id, files })
     }))
+  })
+
+  // A media file the agent names (its import tool): a local path, a media
+  // extension, a file that is there. It is allowlisted like one the user
+  // dropped, so the page can read it over media://.
+  ipcMain.handle('media:import-paths', async (_e, paths: unknown) => {
+    if (!Array.isArray(paths)) return []
+    const out: { path: string; name: string; size: number; mtime: number; url: string }[] = []
+    for (const raw of paths.slice(0, 100)) {
+      if (typeof raw !== 'string' || !isLocalFilePath(raw)) continue
+      const p = normalize(raw)
+      if (!MEDIA_EXTENSIONS.has(path.extname(p).toLowerCase())) continue
+      const stat = await fs.stat(p).catch(() => null)
+      if (!stat?.isFile()) continue
+      allowedMediaPaths.add(foldKey(p))
+      out.push({ path: p, name: path.basename(p), size: stat.size, mtime: Math.round(stat.mtimeMs), url: pathToMediaUrl(p) })
+    }
+    return out
+  })
+  // A file changed on disk (a rebuilt mix over an old one): the window that
+  // shows it is told, once the write is quiet. fs.watch misses some editors'
+  // atomic saves (temp file renamed over), so this polls the size and write
+  // time of the files the page named; a handful of media files is cheap.
+  const mediaWatches = new Map<number, { files: Map<string, { size: number; mtime: number }>; timer: ReturnType<typeof setInterval> | null }>()
+  const stopMediaWatch = (id: number): void => {
+    const w = mediaWatches.get(id)
+    if (!w) return
+    if (w.timer) clearInterval(w.timer)
+    mediaWatches.delete(id)
+  }
+  ipcMain.on('media:watch', (event, list: unknown) => {
+    const sender = event.sender
+    if (sender.isDestroyed()) return
+    let w = mediaWatches.get(sender.id)
+    if (!w) {
+      w = { files: new Map(), timer: null }
+      mediaWatches.set(sender.id, w)
+      sender.once('destroyed', () => stopMediaWatch(sender.id))
+    }
+    w.files.clear()
+    if (Array.isArray(list)) {
+      for (const f of list.slice(0, 500)) {
+        const o = f as { path?: unknown; size?: unknown; mtime?: unknown }
+        if (typeof o.path !== 'string' || !isLocalFilePath(o.path)) continue
+        if (typeof o.size !== 'number' || typeof o.mtime !== 'number') continue
+        w.files.set(o.path, { size: o.size, mtime: o.mtime })
+      }
+    }
+    if (w.timer) {
+      clearInterval(w.timer)
+      w.timer = null
+    }
+    if (!w.files.size) return
+    const mine = w
+    mine.timer = setInterval(() => {
+      void (async () => {
+        if (sender.isDestroyed()) return stopMediaWatch(sender.id)
+        const changed: { path: string; size: number; mtime: number }[] = []
+        for (const [p, was] of mine.files) {
+          const st = await fs.stat(p).catch(() => null)
+          if (!st || !st.isFile()) continue
+          const mtime = Math.round(st.mtimeMs)
+          if (st.size !== was.size || mtime !== was.mtime) {
+            mine.files.set(p, { size: st.size, mtime })
+            changed.push({ path: p, size: st.size, mtime })
+          }
+        }
+        if (changed.length && !sender.isDestroyed()) sender.send('media:changed', changed)
+      })()
+    }, 1_500)
+    mine.timer.unref?.()
   })
 
   ipcMain.handle('dialog:open-media', async (event) => {

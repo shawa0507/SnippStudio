@@ -43,7 +43,12 @@ import { wroteOf } from './activity'
 import { answerSize, type AnswerSize } from './tokens'
 import { rawAnalysis, rawFrames, rawProject, rawTokens, rawTranscript, SAME_AS_RAW, type RawAnswer } from './raw'
 import { planArg, PLAN_NOTED } from './plan'
-import { serializeProject } from '../media/projectio'
+import { enrichAsset, serializeProject, setLastProjectPath } from '../media/projectio'
+import { importWrittenFiles, probeMedia } from '../media/import'
+import { dropInput, releaseAllMedia } from '../media/sources'
+import { dropPeaks } from '../media/peakCache'
+import { dropCachedFrames } from '../playback/scrub'
+import { dropStripImage } from '../components/Filmstrip'
 import { dropItemsTo, giveBackItems, inboxText, rememberSent, waitForItems, watchInboxProject, type InboxItem } from './inbox'
 import { NOTHING_YET, waitedForNothing, waitSeconds, withOther } from './wait'
 import type { Cancel } from '../audio/silence'
@@ -203,6 +208,9 @@ async function frames(args: Record<string, unknown>, s: Session, callId = ''): P
   const times = Array.isArray(args.times) ? args.times.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).slice(0, 12) : []
   if (!times.length) throw new Error('times: 1 to 12 timeline seconds.')
   if (projectDuration(v.project) <= 0) throw new Error('The timeline is empty: there is no picture.')
+  // (A code clip edited on disk since its page loaded is started again
+  // first: the frames are of the code as it is now, never of the old page.)
+  await codeFilms.freshen(v.project).catch(() => undefined)
   // (The setting is one frame's width; a grid shrinks it: frames.ts sheetWidth.)
   const sheet = await contactSheet(v.project, times, { width: num(args.width), setting: useAgentStore.getState().frameWidth, captions: args.captions !== false, maxPixels: FRAMES_MAX_PIXELS })
   if (!sheet) throw new Error('Could not draw the frames.')
@@ -212,6 +220,92 @@ async function frames(args: Record<string, unknown>, s: Session, callId = ''): P
   const shown = sheet.times.length
   rawOf.set(callId, (sent) => rawFrames(sent, shown, v.project))
   return { content: [{ type: 'text', text: `${head}, ${sheet.width}x${sheet.height}. v ${v.token}${left}${ctx}` }, { type: 'image', data: sheet.data, mimeType: 'image/jpeg' }] }
+}
+
+/** new_project: an empty project in this window, and the session goes with
+ *  it. Only a clean project with no waiting draft: nothing of the user's is
+ *  thrown away. */
+function newProjectTool(a: Record<string, unknown>, s: Session): Result {
+  if (currentDraft()) throw new Error('A draft is waiting for the user; a new project waits until it is accepted or rejected. Nothing was changed.')
+  if (useStore.getState().dirty) throw new Error('The open project has unsaved changes; a new one is started only after the user saves or discards it. Nothing was changed.')
+  const aspect = a.aspect === undefined ? '16:9' : a.aspect
+  if (aspect !== '16:9' && aspect !== '9:16' && aspect !== '1:1') throw new Error('aspect: 16:9, 9:16 or 1:1.')
+  const name = typeof a.name === 'string' ? a.name.trim().slice(0, 120) : ''
+  setLastProjectPath(null)
+  releaseAllMedia()
+  useStore.getState().newProject(aspect)
+  if (name) useStore.getState().setProjectName(name)
+  // (The session is on the new project from here: what it read before is
+  // not this one's.)
+  s.projectSession = projectSession()
+  s.results.clear()
+  s.answered.clear()
+  s.taken.clear()
+  forgetOwnWrites(s.id)
+  const p = useStore.getState().project
+  return text(`New project "${p.name}" (${p.settings.width}×${p.settings.height}, ${p.settings.fps} fps). It has no file yet: the user saves it. Call project for its tracks.`)
+}
+
+/** The media tool: files the agent names come into the bin, or an asset is
+ *  pointed at a new file (a rebuilt mix: no restart, no hand-edited .snipp). */
+async function mediaTool(a: Record<string, unknown>): Promise<Result> {
+  if (!api) throw new Error(`Media needs the ${PRODUCT_NAME} app.`)
+  const hasImport = Array.isArray(a.import)
+  const replace = a.replace && typeof a.replace === 'object' ? (a.replace as { asset?: unknown; path?: unknown }) : null
+  if (hasImport === !!replace) throw new Error('media: give import:[paths] or replace:{asset,path}.')
+  if (hasImport) {
+    const paths = (a.import as unknown[]).filter((p): p is string => typeof p === 'string' && p.length > 0).slice(0, 50)
+    if (!paths.length) throw new Error('import: a list of local file paths (video, sound, picture).')
+    const files = await api.importMediaPaths(paths)
+    if (!files.length) throw new Error('import: none of those paths is a media file that is there (video, sound, picture).')
+    const r = await importWrittenFiles(files)
+    const added = r.assets.length ? useStore.getState().addAssets(r.assets) : []
+    const bin = useStore.getState().project.assets
+    const key = (p: string | undefined): string => (p ?? '').replace(/\\/g, '/').toLowerCase()
+    const lines = files.map((f) => {
+      const was = added.find((x) => key(x.path) === key(f.path)) ?? bin.find((x) => key(x.path) === key(f.path))
+      if (was && !added.includes(was)) return `${was.name} (${was.id}) was already in the bin`
+      return was ? `${was.kind} ${was.name} (${was.id})${was.duration > 0 ? ` ${sec(was.duration)} s` : ''}` : `${f.name} was not imported`
+    })
+    const bad = r.errors.length ? `\nNot imported: ${r.errors.slice(0, 10).join('; ')}` : ''
+    return text(`Imported ${added.length} file${added.length === 1 ? '' : 's'}: ${lines.join(', ')}.${bad}`)
+  }
+  const ref = typeof replace?.asset === 'string' ? replace.asset.trim() : ''
+  const filePath = typeof replace?.path === 'string' ? replace.path.trim() : ''
+  if (!ref || !filePath) throw new Error('replace: "asset" (its id or name) and "path" (the new file).')
+  const project = useStore.getState().project
+  const asset = project.assets.find((x) => x.id === ref) ?? project.assets.find((x) => x.name === ref)
+  if (!asset) throw new Error(`replace: there is no asset "${ref}".`)
+  if (asset.kind === 'code') throw new Error('replace: a code clip is its folder; edit the folder\'s files and it reloads.')
+  const [file] = await api.importMediaPaths([filePath])
+  if (!file) throw new Error('replace: that path is not a media file that is there.')
+  const info = await probeMedia({ url: file.url, name: file.name, path: file.path, size: file.size, mtime: file.mtime }).catch(() => null)
+  if (!info) throw new Error(`replace: "${file.name}" could not be read.`)
+  if (info.kind !== asset.kind) throw new Error(`replace: "${file.name}" is a ${info.kind}, and "${asset.name}" is a ${asset.kind}: give a file of the same kind.`)
+  // (Everything read from the old file goes; the address carries the new
+  // write time so the browser's cache cannot play the old one.)
+  dropInput(asset.id)
+  dropCachedFrames(asset.id)
+  dropPeaks(asset.id)
+  dropStripImage(asset.id)
+  useStore.getState().updateAsset(asset.id, {
+    url: `${file.url}${file.url.includes('?') ? '&' : '?'}v=${file.mtime}`,
+    path: file.path,
+    size: file.size,
+    mtime: file.mtime,
+    missing: undefined,
+    relPath: undefined,
+    duration: info.duration,
+    width: info.width,
+    height: info.height,
+    hasAudio: info.hasAudio,
+    filmstrip: undefined,
+    filmstripCols: undefined,
+    ...(info.thumbnail ? { thumbnail: info.thumbnail } : {})
+  })
+  const fresh = useStore.getState().project.assets.find((x) => x.id === asset.id)
+  if (fresh) void enrichAsset(fresh, (id, patch) => useStore.getState().setAssetDerived(id, patch))
+  return text(`"${asset.name}" now reads ${file.name}${info.duration > 0 ? ` (${sec(info.duration)} s)` : ''}. Its clips use the new file.`)
 }
 
 /** Phase 5e, decision 2: each code clip whose verdict is not "ok" (an error
@@ -554,6 +648,7 @@ function editContext(call: AgentCall, s: Session, cancelled: () => boolean): Edi
 /** Does this call change the project (DENEME-4, item 9: one agent at a time)? */
 export function writes(tool: string, a: Record<string, unknown>): boolean {
   if (tool === 'edit') return !(Array.isArray(a.ops) && a.ops.length === 1 && (a.ops[0] as { op?: unknown } | null)?.op === 'help')
+  if (tool === 'media' || tool === 'new_project') return true
   if (tool === 'code_clip') return a.create !== undefined
   if (tool === 'job') return typeof a.start === 'string'
   if (tool === 'notes') return a.update !== undefined
@@ -604,14 +699,19 @@ async function run(call: AgentCall, s: Session, cancelled: () => boolean): Promi
       const news = takeNews(s.id)
       return text([out, ...news.map((n) => `Draft: ${n}`)].join('\n'))
     }
+    case 'media':
+      return mediaTool(a)
+    case 'new_project':
+      return newProjectTool(a, s)
     case 'code_clip': {
       // Phase 5e, decision 5: one of create or check.
       if ((a.create === undefined) === (a.check === undefined)) throw new Error('code_clip: give create:{name,start,end} or check:"<clip id>".')
       if (a.check !== undefined) return text(await checkClip(a.check, s.client))
       const made = await oneEditAtATime(async () => {
         const p = await prepareCreate(a.create, call.projectPath, s.client, s.id)
+        const direct = (a.create as { direct?: unknown }).direct === true
         try {
-          return { head: p.head, out: await editTool(p.place as unknown as Record<string, unknown>, editContext(call, s, cancelled)) }
+          return { head: p.head, out: await editTool({ ...(p.place as unknown as Record<string, unknown>), ...(direct ? { direct: true } : {}) }, editContext(call, s, cancelled)) }
         } finally {
           // (Its film may leave the project now if no clip uses it: audit A3.)
           createDone(p.assetId)
@@ -649,6 +749,10 @@ function about(call: AgentCall): { kind?: string; range?: [number, number]; at?:
       return { kind: Array.isArray(a.ops) ? [...new Set(a.ops.slice(0, 50).map((o) => String((o as { op?: unknown })?.op)))].join(',') : undefined, ...(Array.isArray(a.ops) ? { ops: a.ops.length } : {}) }
     case 'job':
       return { kind: typeof a.start === 'string' ? a.start : 'wait' }
+    case 'media':
+      return { kind: a.replace !== undefined ? 'replace' : 'import' }
+    case 'new_project':
+      return { kind: 'new' }
     case 'code_clip':
       return { kind: a.check !== undefined ? 'check' : 'create' }
     case 'wait': {

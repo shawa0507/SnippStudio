@@ -170,6 +170,9 @@ class FilmHost {
   /** A fast-path page that read Math.random, crypto or the clock while it
    *  loaded (5c + 5d audit, K1): loaded again, it may draw another picture. */
   loadChance = false
+  /** The folder's fingerprint when its page last loaded (main's filmStamp):
+   *  a different one before a frame is drawn starts the page again. */
+  stamp: string | null = null
   closed = false
   /** Its iframe is gone (closed, or let go as not responding). */
   dead = false
@@ -237,6 +240,9 @@ class FilmHost {
     this.note('made')
     // Its code or its mix changing on disk starts it again (step 9).
     watchFilm(filmIdOf(asset.url), true)
+    // And the folder as it was when this page loaded: refreshStamp tells
+    // whether it is the same one now (freshen, before frames are drawn).
+    void this.refreshStamp()
     this.bootTimer = setTimeout(() => {
       this.fail('The film page did not start in time.')
       // (A page still busy starting, a loop, keeps no process running.)
@@ -387,6 +393,18 @@ class FilmHost {
     this.port?.close()
     this.port = null
     this.frame?.remove()
+  }
+
+  /** The folder's files now, against the ones this page loaded: true when
+   *  they differ (then the page is drawn from old code until reloaded). The
+   *  first answer only records them. */
+  async refreshStamp(): Promise<boolean> {
+    if (!api) return false
+    const s = await api.codeFilm.stamp(filmIdOf(this.url)).catch(() => null)
+    if (typeof s !== 'string' || !s) return false
+    const changed = this.stamp !== null && this.stamp !== s
+    this.stamp = s
+    return changed
   }
 
   /** What the app's guard in the page wrote down (null: no answer in 2 s). */
@@ -1428,6 +1446,22 @@ export const codeFilms = {
     hostOf(asset)
   },
 
+  /** Pages whose folder changed since they loaded start again, and the
+   *  caller waits for them: the frame paths call it before drawing, so an
+   *  edit is seen even when no watcher event came (an atomic save, a network
+   *  folder). Cheap: one stat walk per code film. */
+  async freshen(project: Project): Promise<void> {
+    if (!api || exportLock > 0) return
+    const live = new Set(project.assets.filter((a) => a.kind === 'code' && !a.missing).map((a) => a.id))
+    for (const [assetId, h] of [...hosts]) {
+      if (!live.has(assetId) || h.closed || h.dead) continue
+      const changed = await h.refreshStamp().catch(() => false)
+      if (!changed) continue
+      this.reload(assetId)
+      await hosts.get(assetId)?.whenReady().catch(() => undefined)
+    }
+  },
+
   /** The films the preview needs now (under the playhead or inside the
    *  pre-roll), every tick, in timeline order: each gets its page while there
    *  is room; those needed now are never let go for one another. */
@@ -1522,6 +1556,8 @@ export const codeFilms = {
   /** Every code film a clip in [a, b] shows, started and ready (or an error
    *  naming the film). */
   async ready(project: Project, range: [number, number], signal?: AbortSignal): Promise<void> {
+    // (Before any frame: a folder edited since its page loaded starts again.)
+    await this.freshen(project).catch(() => undefined)
     const used = new Map<string, Asset>()
     for (const c of Object.values(project.clips)) {
       if (c.disabled || c.start >= range[1] || c.start + c.duration <= range[0]) continue

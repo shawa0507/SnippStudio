@@ -33,8 +33,8 @@ export async function run({ c, app, media, lib }) {
   // Refusals.
   assert.equal((await fetch(ag.url, { method: 'POST', body: '{}' })).status, 401, 'no token')
   assert.equal((await ag.rpc('tools/list', {}, { origin: 'http://evil.example' })).status, 403, 'a web page')
-  assert.deepEqual(ag.tools.map((t) => t.name), ['project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'wait'])
-  assert.ok(ag.defsChars <= 12000, `definitions ${ag.defsChars}`) // (phase 5e, decision 7; GONDER-PLAN.md 8: the wait tool)
+  assert.deepEqual(ag.tools.map((t) => t.name), ['project', 'new_project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'media', 'wait'])
+  assert.ok(ag.defsChars <= 14_000, `definitions ${ag.defsChars}`) // (phase 5e; GONDER-PLAN.md 8; media; new_project)
 
   const sum = await ag.call('project')
   assert.match(sum.text, /talk\.mp4/)

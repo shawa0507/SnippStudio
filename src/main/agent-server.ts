@@ -33,22 +33,67 @@ export const CONNECTIONS_MAX = 64
 export interface AgentSettings {
   enabled: boolean
   token: string
+  /** A key that still opens the door after a renew (until previousUntil):
+   *  an agent reconnecting in the first minutes is not cut off mid-turn. */
+  previous?: string
+  previousUntil?: number
+  /** A refused key starts a repair of the detected agents' registrations
+   *  (default true: absent means on). */
+  autoRepair?: boolean
 }
+
+/** How long the key before a renew keeps working (agent-server.ts). */
+export const PREVIOUS_TOKEN_GRACE_MS = 10 * 60_000
 
 export const newToken = (): string => randomBytes(32).toString('base64url')
 
-const settingsFile = (dir: string): string => path.join(dir, 'agent.json')
+const TOKEN_RE = /^[A-Za-z0-9_-]{32,}$/
 
-/** This profile's agent settings. A missing or damaged file is "off" with a
- *  fresh token (written the first time the server is turned on). */
+const settingsFile = (dir: string): string => path.join(dir, 'agent.json')
+const backupFile = (dir: string): string => path.join(dir, 'agent.json.bak')
+
+function parsed(raw: unknown): AgentSettings | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Partial<AgentSettings>
+  if (typeof o.token !== 'string' || !TOKEN_RE.test(o.token)) return null
+  const out: AgentSettings = { enabled: o.enabled === true, token: o.token }
+  // (A previous key is trusted only with its own time; without one it is
+  // never accepted.)
+  if (typeof o.previous === 'string' && TOKEN_RE.test(o.previous) && typeof o.previousUntil === 'number' && Number.isFinite(o.previousUntil)) {
+    out.previous = o.previous
+    out.previousUntil = o.previousUntil
+  }
+  if (typeof o.autoRepair === 'boolean') out.autoRepair = o.autoRepair
+  return out
+}
+
+/** This profile's agent settings. The token is stable across launches: a
+ *  missing file is written at once, and a damaged one is recovered from the
+ *  backup the last write kept (a new token only when neither is readable).
+ *  Before, a damaged file read as "off, with a NEW key" on every launch:
+ *  every agent the user had registered was refused with 401. */
 export async function readAgentSettings(dir: string): Promise<AgentSettings> {
   try {
-    const raw = JSON.parse(await fs.readFile(settingsFile(dir), 'utf8')) as Partial<AgentSettings>
-    if (typeof raw.token === 'string' && /^[A-Za-z0-9_-]{32,}$/.test(raw.token)) return { enabled: raw.enabled === true, token: raw.token }
+    const raw = parsed(JSON.parse(await fs.readFile(settingsFile(dir), 'utf8')))
+    if (raw) return raw
   } catch {
-    /* no settings yet */
+    /* no settings, or damaged */
   }
-  return { enabled: false, token: newToken() }
+  try {
+    const kept = parsed(JSON.parse(await fs.readFile(backupFile(dir), 'utf8')))
+    if (kept) {
+      // (The backup is the same settings the last good write kept: put it
+      // back, so the next read finds it whole.)
+      await writeAgentSettings(dir, kept).catch(() => undefined)
+      return kept
+    }
+  } catch {
+    /* no backup either */
+  }
+  const fresh: AgentSettings = { enabled: false, token: newToken() }
+  // (Written now: a token that is not kept would change at every launch.)
+  await writeAgentSettings(dir, fresh).catch(() => undefined)
+  return fresh
 }
 
 /** Written readable by the user alone (phase 10a, P10: on macOS / Linux the
@@ -63,22 +108,28 @@ export async function readAgentSettings(dir: string): Promise<AgentSettings> {
  *  renamed over the old one, as safe-write.ts does for project files. */
 export async function writeAgentSettings(dir: string, settings: AgentSettings): Promise<void> {
   await fs.mkdir(dir, { recursive: true })
-  const file = settingsFile(dir)
-  const tmp = tempPathFor(file)
-  let fh: Awaited<ReturnType<typeof fs.open>> | null = null
-  try {
-    fh = await fs.open(tmp, 'w', SECRET_FILE_MODE)
-    await fh.writeFile(JSON.stringify(settings, null, 2) + '\n', 'utf8')
-    await fh.sync()
-    await fh.close()
-    fh = null
-    await renameWithRetry(tmp, file)
-  } catch (err) {
-    if (fh) await fh.close().catch(() => undefined)
-    await fs.rm(tmp, { force: true }).catch(() => undefined)
-    throw err
+  const text = JSON.stringify(settings, null, 2) + '\n'
+  const write = async (file: string): Promise<void> => {
+    const tmp = tempPathFor(file)
+    let fh: Awaited<ReturnType<typeof fs.open>> | null = null
+    try {
+      fh = await fs.open(tmp, 'w', SECRET_FILE_MODE)
+      await fh.writeFile(text, 'utf8')
+      await fh.sync()
+      await fh.close()
+      fh = null
+      await renameWithRetry(tmp, file)
+    } catch (err) {
+      if (fh) await fh.close().catch(() => undefined)
+      await fs.rm(tmp, { force: true }).catch(() => undefined)
+      throw err
+    }
+    await fs.chmod(file, SECRET_FILE_MODE).catch(() => undefined)
   }
-  await fs.chmod(file, SECRET_FILE_MODE).catch(() => undefined)
+  // (The backup is the same settings, written only after the file itself is
+  // in place: a damaged file then reads back as the same key, not a new one.)
+  await write(settingsFile(dir))
+  await write(backupFile(dir)).catch(() => undefined)
 }
 
 export type Refusal = { status: number; message: string; headers?: Record<string, string> }
@@ -96,7 +147,9 @@ function sameToken(given: string, token: string): boolean {
 export function refusalFor(
   req: { method?: string; url?: string; headers: Record<string, string | string[] | undefined> },
   token: string,
-  port: number
+  port: number,
+  previous?: string,
+  previousUntil?: number
 ): Refusal | null {
   const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? v[0] ?? '' : v ?? '')
   // A browser page always sends Origin on a cross-site POST; an agent never does.
@@ -107,7 +160,10 @@ export function refusalFor(
   if (url !== AGENT_PATH) return { status: 404, message: 'Not found.' }
   const auth = one(req.headers.authorization)
   const given = /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim() ?? ''
-  if (!given || !sameToken(given, token)) return { status: 401, message: 'Missing or wrong token.', headers: { 'WWW-Authenticate': 'Bearer' } }
+  // (For a while after a renew the key before it still opens the door: an
+  // agent that reconnects in the meantime is not refused mid-work.)
+  const grace = previous && previousUntil !== undefined && Date.now() < previousUntil
+  if (!given || (!sameToken(given, token) && !(grace && sameToken(given, previous)))) return { status: 401, message: 'Missing or wrong token.', headers: { 'WWW-Authenticate': 'Bearer' } }
   // No server-to-agent stream is offered: POST, and DELETE to end a session.
   if (req.method !== 'POST' && req.method !== 'DELETE') return { status: 405, message: 'Use POST.', headers: { Allow: 'POST, DELETE' } }
   return null
@@ -184,6 +240,9 @@ function send(res: ServerResponse, status: number, body?: unknown, headers: Reco
 export interface AgentServerOptions {
   port: number
   token: string
+  /** The key before a renew, accepted until previousUntil (ms). */
+  previous?: string
+  previousUntil?: number
   /** A tool call, with the session it belongs to. `signal` ends when the
    *  agent gave the call up (its connection closed before the answer, or it
    *  sent notifications/cancelled): GONDER-PLAN.md, 6. */
@@ -211,7 +270,7 @@ export function startAgentServer(opts: AgentServerOptions): Promise<RunningAgent
   // may take to be ANSWERED is not this (agent-host.ts CALL_TIMEOUT_MS).
   const server: Server = createServer({ headersTimeout: REQUEST_TIMEOUT_MS, requestTimeout: REQUEST_TIMEOUT_MS, connectionsCheckingInterval: 1_000 }, (req, res) => {
     void (async () => {
-      const refusal = refusalFor(req, opts.token, opts.port)
+      const refusal = refusalFor(req, opts.token, opts.port, opts.previous, opts.previousUntil)
       if (refusal) {
         if (refusal.status === 401) opts.sessions.refused?.('key')
         send(res, refusal.status, { error: refusal.message }, refusal.headers)

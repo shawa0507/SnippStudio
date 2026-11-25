@@ -199,7 +199,11 @@ export async function runEdit(args: Record<string, unknown>, ctx: EditContext): 
     })
   /** The names the agent gave, with the ids the app made for them. */
   const namesOf = (outs: readonly Outcome[]): [string, string][] => outs.flatMap((o) => (o.applied && calls[o.index]?.alias ? madeIds([o.result]).slice(0, 1).map((id): [string, string] => [calls[o.index].alias!, id]) : []))
-  const mode = useAgentStore.getState().mode
+  // (direct:true: the agent's own choice for this call, whatever the user's
+  // setting. A draft already waiting is the user's: it is accepted or
+  // rejected first, never bypassed.)
+  if (args.direct === true && currentDraft()) throw new Error('A draft is waiting for the user; a direct edit waits until it is accepted or rejected. Send it without direct to add it to the draft.')
+  const mode = args.direct === true ? 'direct' : useAgentStore.getState().mode
   if (currentDraft() || mode === 'draft' || ctx.draft) {
     const head0 = currentDraft()?.project ?? useStore.getState().project
     const r = addToDraft(ctx.session, ctx.client, build, ctx.alive, guard)

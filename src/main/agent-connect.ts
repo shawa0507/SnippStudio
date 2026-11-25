@@ -33,6 +33,8 @@ const PROGRAM: Record<AgentId, string> = { claude: 'claude', codex: 'codex', ope
  *  Antigravity), and the variable OpenCode's part reads the key from. */
 const MANUAL_SERVER = 'snippstudio'
 const TOKEN_ENV = 'SNIPP_MCP_TOKEN'
+/** The variable OpenCode's config reads its header from. */
+export const openCodeTokenEnv = (): string => TOKEN_ENV
 
 export interface AgentFound {
   id: AgentKind
@@ -309,11 +311,16 @@ export function codexAddLine(url: string, name: string, platform: string = proce
  *  environment for good (DENEME-2, item 10), so every new terminal Codex
  *  starts from has it. The key is read by the line itself from the
  *  profile's file: it never passes through the page or the clipboard. */
+export function envPersistLine(settingsFile: string, variable: string, platform: string = process.platform): string | undefined {
+  if (platform !== 'win32') return undefined
+  if (!/^[A-Z][A-Z0-9_]{0,62}$/.test(variable)) throw new RangeError(variable)
+  return `[Environment]::SetEnvironmentVariable('${variable}', (Get-Content -LiteralPath ${psq(settingsFile)} -Raw | ConvertFrom-Json).token, 'User')`
+}
+
+/** The same for Codex's own variable. */
 export function codexPersistLine(settingsFile: string, name: string, platform: string = process.platform): string | undefined {
   if (platform !== 'win32') return undefined
-  const env = codexTokenEnv(name)
-  if (!/^[A-Z][A-Z0-9_]{0,62}$/.test(env)) throw new RangeError(env)
-  return `[Environment]::SetEnvironmentVariable('${env}', (Get-Content -LiteralPath ${psq(settingsFile)} -Raw | ConvertFrom-Json).token, 'User')`
+  return envPersistLine(settingsFile, codexTokenEnv(name), platform)
 }
 
 /** What the Codex key query answers: the user's variable holds this copy's
@@ -329,10 +336,15 @@ export type CodexEnvVerdict = 'same' | 'different' | 'missing' | 'unknown'
  * process's own ('Process'), where the test put the variable.
  */
 export function codexEnvQueryArgs(name: string, settingsFile: string, scope: 'User' | 'Process' = 'User'): string[] {
-  const env = codexTokenEnv(name)
-  if (!/^[A-Z][A-Z0-9_]{0,62}$/.test(env)) throw new RangeError(env)
+  return tokenEnvQueryArgs(settingsFile, codexTokenEnv(name), scope)
+}
+
+/** The same comparison for any variable this copy's key lives in (Codex's
+ *  own, OpenCode's SNIPP_MCP_TOKEN): one word out. */
+export function tokenEnvQueryArgs(settingsFile: string, variable: string, scope: 'User' | 'Process' = 'User'): string[] {
+  if (!/^[A-Z][A-Z0-9_]{0,62}$/.test(variable)) throw new RangeError(variable)
   const script = [
-    `$v = [Environment]::GetEnvironmentVariable('${env}', '${scope}')`,
+    `$v = [Environment]::GetEnvironmentVariable('${variable}', '${scope}')`,
     `if (-not $v) { 'Missing' } else { $k = $null; try { $k = (Get-Content -LiteralPath ${psq(settingsFile)} -Raw | ConvertFrom-Json).token } catch { }`,
     `if ($k -and [string]::Equals($v, [string]$k, [StringComparison]::Ordinal)) { 'Same' } else { 'Different' } }`
   ].join('; ')
@@ -404,6 +416,26 @@ export function codexRegistrationState(result: { code: number | null; output: st
 export function openCodeConfig(url: string): string {
   const remote = { type: 'remote', url, oauth: false, headers: { Authorization: `Bearer {env:${TOKEN_ENV}}` } }
   return JSON.stringify({ mcp: { servers: { [MANUAL_SERVER]: remote } } }, null, 2)
+}
+
+/** OpenCode's own `mcp add` line (checked against `opencode mcp add --help`,
+ *  25 Nov 2026: `--url`, `--header name=value`, `--global`; an entry already
+ *  there is updated in place). The header holds the variable, never the key. */
+export function openCodeAddLine(url: string, name: string, platform: string = process.platform, program?: string): string {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new RangeError(name)
+  const header = `Authorization=Bearer {env:${TOKEN_ENV}}`
+  const run = program && (platform === 'win32' ? path.win32.isAbsolute(program) : path.posix.isAbsolute(program)) ? (platform === 'win32' ? `& ${psq(program)}` : shq(program)) : 'opencode'
+  const q = platform === 'win32' ? psq : shq
+  return `${platform === 'win32' ? `${PS_NO_CWD_SEARCH}; ` : ''}${run} mcp add ${name} --url ${q(url)} --header ${q(header)} --global`
+}
+
+/** One line that reconnects OpenCode: its config entry updated (an existing
+ *  one in place) and, on Windows, the key kept in the user's environment for
+ *  every new OpenCode start. Elsewhere the start line sets the variable. */
+export function openCodeRegisterLine(settingsFile: string, url: string, name: string, platform: string = process.platform, program?: string): string {
+  const add = openCodeAddLine(url, name, platform, program)
+  const persist = envPersistLine(settingsFile, TOKEN_ENV, platform)
+  return persist ? `${persist}; ${add}` : add
 }
 
 /**

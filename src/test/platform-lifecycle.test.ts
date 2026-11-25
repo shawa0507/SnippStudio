@@ -135,5 +135,7 @@ test('the settings writer passes the mode to the file system (spied)', async () 
     fsp.chmod = chmod
     rmSync(dir, { recursive: true, force: true })
   }
-  assert.deepEqual(seen, [['open', 'w', 0o600], ['chmod', 0o600]])
+  // (The file, then the backup a damaged file is recovered from: both made
+  // with the secret's mode from the start.)
+  assert.deepEqual(seen, [['open', 'w', 0o600], ['chmod', 0o600], ['open', 'w', 0o600], ['chmod', 0o600]])
 })

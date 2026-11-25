@@ -45,6 +45,7 @@ import type { RepairNote } from './model/repair'
 import { NewerFileDialog } from './components/app/NewerFileDialog'
 import { BackupsDialog, backupTime, type BackupEntry } from './components/app/BackupsDialog'
 import { refreshChangedAndTell } from './media/relink-ui'
+import { watchMediaFiles } from './media/live-watch'
 import { autosaveOnce } from './media/autosave'
 import { releaseAllMedia } from './media/sources'
 import { dismissToast, notify, t, useT } from './ui'
@@ -329,6 +330,9 @@ export function App(): JSX.Element {
 
   // The panels' help texts: one line each, the rest on hover or click.
   useEffect(() => installHints(), [])
+  // A media file changed on disk while the project is open is read again
+  // (main watches the paths; the asset, its peaks and its picture follow).
+  useEffect(() => watchMediaFiles(), [])
 
   /**
    * Nothing survives the mouse coming up.
@@ -369,8 +373,16 @@ export function App(): JSX.Element {
     // Unsaved changes on close: the main process hands the question over so it
     // can be asked in the app's own dialog instead of a white system box.
     bridge.onConfirmQuit(() => setQuitPrompt(true))
+    // A clean restart (Settings, or --reload): save, then start again.
+    bridge.onSaveAndRestart(() => {
+      void handleSave(true).then(async (saved) => {
+        if (!saved) return showToast(t('settings.general.restart.failed'), true)
+        const r = await bridge.restartApp().catch(() => ({ ok: false }))
+        if (!r.ok) showToast(t('settings.general.restart.busy'), true)
+      })
+    })
     return unsub
-  }, [handleSave])
+  }, [handleSave, showToast])
 
   // Autosave. Every 5 minutes the project is written back to its own file, if
   // it has one. Independently, every 3 minutes a recovery snapshot goes to
@@ -687,7 +699,14 @@ export function App(): JSX.Element {
   useEffect(() => onShellRequest((what) => {
     if (what === 'import') void handleImport()
     else if (what === 'export') handleExport()
-  }), [handleImport, handleExport])
+    else if (what === 'restart') {
+      void handleSave(true).then(async (saved) => {
+        if (!saved) return showToast(t('settings.general.restart.failed'), true)
+        const r = (await api?.restartApp().catch(() => ({ ok: false }))) ?? { ok: false }
+        if (!r.ok) showToast(t('settings.general.restart.busy'), true)
+      })
+    }
+  }), [handleImport, handleExport, handleSave, showToast])
 
   // The sample project (phase 9b): made as a new copy, then opened from its
   // file like any project (File → Help, the Projects window).

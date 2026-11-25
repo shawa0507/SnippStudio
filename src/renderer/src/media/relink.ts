@@ -47,7 +47,9 @@ export function clipsPastEnd(p: Project, id: string, duration: number): number {
 /** The fields a probe gives an asset. */
 function probed(info: Asset, file: PickedFile): Partial<Asset> {
   return {
-    url: file.url,
+    // (The write time in the address: the browser's own cache of the old
+    // media:// answer would otherwise keep playing the old file.)
+    url: typeof file.mtime === 'number' ? `${file.url}${file.url.includes('?') ? '&' : '?'}v=${file.mtime}` : file.url,
     path: file.path,
     size: file.size,
     ...(typeof file.mtime === 'number' ? { mtime: file.mtime } : {}),

@@ -45,10 +45,11 @@ test('broken 1, access off: "not listening" with a way to turn it on; step 1 is 
   assert.equal(marks(base({ running: false, error: 'port taken' })).listening, 'bad:error')
 })
 
-test('broken 2, no registration: "no registration: do step 2"; step 2 is the one to do', () => {
+test('broken 2, no registration: "no registration: reconnect, or do step 2"; step 2 is the one to do', () => {
   const f = base({ registration: 'missing' })
   assert.equal(marks(f).registered, 'bad:missing')
-  assert.deepEqual(checkRows(f)[0].fix, { go: 2 })
+  // (Codex and Claude Code have their own CLI: the row reconnects itself.)
+  assert.deepEqual(checkRows(f)[0].fix, { repair: 'codex' })
   assert.equal(marks(f).connected, 'none:notYet', 'never connected is not the problem yet')
   assert.deepEqual(stepStates(f), ['ok', 'now', 'todo', 'todo', 'todo'])
   assert.equal(marks(base({ registration: 'stale' })).registered, 'bad:stale')
@@ -57,13 +58,21 @@ test('broken 2, no registration: "no registration: do step 2"; step 2 is the one
 })
 
 test('broken 3, an old key: Codex\'s variable, Claude Code\'s header, or a 401 the server saw', () => {
-  for (const f of [base({ codexKey: 'different' }), base({ program: 'claude', registration: 'oldKey', codexKey: null })]) {
-    assert.equal(marks(f).key, 'bad:old')
-    assert.equal(marks(f).registered, 'ok:found', 'registered, at the right address')
-    assert.deepEqual(checkRows(f)[1].fix, { copy: true })
-    assert.deepEqual(stepStates(f), ['ok', 'now', 'todo', 'todo', 'todo'])
-  }
+  const codexOld = base({ codexKey: 'different' })
+  assert.equal(marks(codexOld).key, 'bad:old')
+  assert.deepEqual(checkRows(codexOld)[1].fix, { repair: 'codex' })
+  assert.deepEqual(stepStates(codexOld), ['ok', 'now', 'todo', 'todo', 'todo'])
+  const claudeOld = base({ program: 'claude', registration: 'oldKey', codexKey: null })
+  assert.equal(marks(claudeOld).key, 'bad:old')
+  assert.equal(marks(claudeOld).registered, 'ok:found', 'registered, at the right address')
+  // (The reconnect runs step 2's line itself.)
+  assert.deepEqual(checkRows(claudeOld)[1].fix, { repair: 'claude' })
+  assert.deepEqual(stepStates(claudeOld), ['ok', 'now', 'todo', 'todo', 'todo'])
+  assert.deepEqual(checkRows(base({ program: 'claude', registration: 'missing', codexKey: null }))[0].fix, { repair: 'claude' })
+  // (OpenCode has no registration to read, so its row stays a copy; its
+  // Reconnect button is in step 2.)
   assert.equal(marks(base({ codexKey: 'missing' })).key, 'bad:notSaved')
+  assert.deepEqual(checkRows(base({ codexKey: 'missing' }))[1].fix, { repair: 'codex' })
   // A refused key, newer than the last good session: for any program.
   const r = base({ program: 'opencode', registration: null, codexKey: null, heard: { seen: [{ client: 'opencode', at: 100 }], refused: { why: 'key', at: 200 } } })
   assert.equal(marks(r).key, 'bad:refused')

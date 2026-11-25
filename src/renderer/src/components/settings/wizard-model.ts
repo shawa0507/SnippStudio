@@ -32,8 +32,9 @@ export const checkable = (p: Program): boolean => familyOf(p) === 'claude' || fa
 export type CodexKey = 'same' | 'different' | 'missing' | 'unknown'
 export type Mark = 'ok' | 'bad' | 'none'
 export type RowId = 'registered' | 'key' | 'listening' | 'connected'
-/** What a row's button does: go to a step, copy the step 2 line again, turn access on. */
-export type Fix = { go: 1 | 2 | 3 } | { copy: true } | { access: true }
+/** What a row's button does: go to a step, copy the step 2 line again, turn
+ *  access on, or run the line itself (the program's own reconnect). */
+export type Fix = { go: 1 | 2 | 3 } | { copy: true } | { access: true } | { repair: 'claude' | 'codex' }
 
 export interface Row {
   id: RowId
@@ -83,8 +84,8 @@ function registeredRow(f: Facts): Row {
     case 'checking': return { id, mark: 'none', say: 'checking' }
     case 'ok':
     case 'oldKey': return { id, mark: 'ok', say: 'found' }
-    case 'missing': return { id, mark: 'bad', say: 'missing', fix: { go: 2 } }
-    case 'stale': return { id, mark: 'bad', say: 'stale', fix: { go: 2 } }
+    case 'missing': return { id, mark: 'bad', say: 'missing', fix: f.program === 'claude' ? { repair: 'claude' } : f.program.startsWith('codex') ? { repair: 'codex' } : { go: 2 } }
+    case 'stale': return { id, mark: 'bad', say: 'stale', fix: f.program === 'claude' ? { repair: 'claude' } : f.program.startsWith('codex') ? { repair: 'codex' } : { go: 2 } }
     case 'notInstalled': return { id, mark: 'bad', say: 'notInstalled' }
     default: return { id, mark: 'none', say: 'unknown' }
   }
@@ -102,9 +103,11 @@ function keyVerdict(f: Facts): 'ok' | 'old' | 'notSaved' | null {
 function keyRow(f: Facts): Row {
   const id = 'key'
   const verdict = keyVerdict(f)
-  if (verdict === 'old' || verdict === 'notSaved') return { id, mark: 'bad', say: verdict, fix: { copy: true } }
+  const family = familyOf(f.program)
+  const reconnect: Fix = family === 'claude' ? { repair: 'claude' } : family === 'codex' ? { repair: 'codex' } : { copy: true }
+  if (verdict === 'old' || verdict === 'notSaved') return { id, mark: 'bad', say: verdict, fix: reconnect }
   const refused = freshRefusal(f, 'key')
-  if (refused !== null && !(verdict === 'ok' && (f.checkedAt ?? 0) > refused)) return { id, mark: 'bad', say: 'refused', at: refused, fix: { copy: true } }
+  if (refused !== null && !(verdict === 'ok' && (f.checkedAt ?? 0) > refused)) return { id, mark: 'bad', say: 'refused', at: refused, fix: reconnect }
   if (verdict === 'ok' || lastSeen(f)) return { id, mark: 'ok', say: 'ok' }
   return { id, mark: 'none', say: 'later' }
 }

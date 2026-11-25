@@ -25,7 +25,7 @@ Hepsi tek yerde: **Ayarlar → Ajan bağlantısı** (üst çubuktaki dişli, **D
 4. **Denetle**: dört satır, her biri tikli ya da çarpılı ve ne yapılacağıyla: kayıt bulundu, anahtar güncel, SnippStudio dinliyor, ajan bağlandı (saatiyle). Yalnız okur (`claude mcp get`, `codex mcp get --json` ve Windows'ta Codex anahtarının eşleşip eşleşmediği, PowerShell içinde karşılaştırılarak).
 5. **Dene**: ajana yazılacak cümleyi kopyala; bağlanınca adım bunu söyler.
 
-Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi portuyla ve Codex için kendi değişkeniyle (`SNIPPSTUDIO_DEV_TOKEN`) eklenir; ikisi birbirinin üstüne yazmaz. **Anahtarı yenile** yeni bir anahtar yapar (iki adımlı onay): eskisi artık çalışmaz, bağlı ajanların bağlantısı kesilir, komutları yeniden çalıştırırsın. Ajanın genel ayarlarına SnippStudio hiç dokunmaz; proje klasörüne de bir şey yazmaz.
+Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi portuyla ve Codex için kendi değişkeniyle (`SNIPPSTUDIO_DEV_TOKEN`) eklenir; ikisi birbirinin üstüne yazmaz. **Anahtarı yenile** yeni bir anahtar yapar (iki adımlı onay): bağlı ajanların bağlantısı kesilir, eski anahtar 10 dakika sonra çalışmaz. **Yeniden bağla** (2. adımda ya da eski anahtarı bulan denetim satırında) bulduğu program için 2. adımı senin yerine çalıştırır: Claude Code, Codex ve OpenCode kendi kayıtlarını yazar; SnippStudio yalnız o programın kendi komutunu başlatır. **Bulunan ajanları kendiliğinden onar** açıkken (varsayılan, Ayrıntılar altında), anahtarı yüzünden reddedilen bir istek burada bulunan programların kaydını kendiliğinden onarır; reddedilen ajan yine de yeniden bağlanır ya da yeniden açılır. Ajan ayarlarının başka hiçbir yerine dokunmaz; proje klasörüne de bir şey yazmaz.
 
 **Ajan erişimi**'ni kapatmak sunucuyu kapatır: hiçbir şey dinlemez.
 
@@ -39,6 +39,7 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 | Araç | Ne yapar |
 |---|---|
 | `project` | Açık proje: boyut, uzunluk, sürüm, şeritler ve klipler, altyazılar, işaretleyiciler, henüz yerleşmemiş medya. İlk çağrılan. |
+| `new_project` | Bu pencerede boş bir proje başlatır (16:9, 9:16 ya da 1:1; isteğe bağlı ad). Yalnız açık projenin kaydedilmemiş değişikliği ve bekleyen taslağı yoksa; yeni projenin henüz dosyası yoktur. |
 | `transcript` | Söylenenler, satır satır zamanlarıyla; kelime zamanları yalnız ince kesilecek bir aralık için. |
 | `frames` | 1–12 andaki görüntü, dışa aktarmanın çizdiği gibi, tek bir resimde (zamanlarıyla bir ızgara). |
 | `changes` | Okuduğu bir sürümden beri ne değişti: her şeyi yeniden okumaktan ucuz. |
@@ -47,6 +48,7 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 | `notes` | İş notların: bekleyenleri okur ve yanıtlar; sen onaylarsın. |
 | `job` | Uzun işler: altyazıyı SnippStudio'nun kendi konuşma modeli yazar. Dil projenin konuşulan dilidir (Altyazı sekmesindeki seçim; yeni proje arayüzün dilini alır); ajan Türkçe ya da İngilizce derse o dil. Hangisi olduğunu `project` cevabı söyler. |
 | `code_clip` | Kod klibi: boş bir `index.html` ile klasörünü açar ve yerleştirir; bir sayfayı denetler (hatalar, boş ya da kararsız kareler, uzunluğu). |
+| `media` | Medya kutusu: yerel video, ses ve resim dosyalarını yoluyla içe aktarır (`import`); bir varlığı aynı türden yeni bir dosyaya yöneltir (`replace`: yeniden üretilmiş bir miks, yeni bir take), uygulamayı kapatmadan. |
 | `wait` | Senin SnippStudio'dan gönderdiğini bekler: gönderdiğin anda döner (notlar, yazdığın iş, taslağa cevabın); bir şey gelmezse birkaç dakika sonra "henüz yok" der, ajan yeniden çağırır. |
 
 Ajan bir kod klibinin sayfasını istediği gibi yazar: SnippStudio ona nasıl çizeceğini söylemez ve sayfayı yazıldığı gibi oynatır (ağsız).

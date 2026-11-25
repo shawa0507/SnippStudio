@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 SnippStudio contributors
-// The agent tools, v2 (SnippStudio phase 4A, ANA-PLAN.md §2): eight tools, the
-// edit tool's operations generated from the command schemas (commands/), the
-// way to use each tool written once, in its own description. Pure: the main
-// process serves this list (main/agent-protocol.ts), the editor page runs the
-// tools (agent/host.ts), and a test keeps initialize + tools/list under its
-// budget (12 000 characters).
+// The agent tools, v2 (SnippStudio phase 4A, ANA-PLAN.md §2): the edit tool's
+// operations generated from the command schemas (commands/), the way to use
+// each tool written once, in its own description. Pure: the main process
+// serves this list (main/agent-protocol.ts), the editor page runs the tools
+// (agent/host.ts), and a test keeps initialize + tools/list under its budget
+// (14 000 characters).
 //
-// Ten tools in all (the most): `code_clip` (phase 5e) and `wait` (the user's
-// sends from the app, GONDER-PLAN.md) took the two places kept for later.
+// Twelve tools in all: code_clip (phase 5e), wait (the user's sends from the
+// app, GONDER-PLAN.md), media (the agent's import and replace) and new_project
+// (a clean window's empty project).
 import { AGENT_COMMANDS, type Command, type JsonSchema, type Schema } from '../commands'
 
 export interface AgentTool {
@@ -25,7 +26,7 @@ export const RESERVED_TOOLS: readonly string[] = []
 
 export const SERVER_INSTRUCTIONS =
   'A video editor on this computer; these tools read and edit the project open in it. Times are timeline seconds. ' +
-  'Start with project. The app measures (analyze), you decide; send many changes in one edit. Never render or export. ' +
+  'Start with project; new_project starts an empty one (clean projects only). The app measures (analyze), you decide; send many changes in one edit. Never render or export. ' +
   'When your work is done, call wait for the user\'s next request, and again while nothing came. ' +
   'Subagents may add as:"<name>" (≤12 letters, digits, -) to each call.'
 
@@ -255,6 +256,18 @@ export function agentTools(): AgentTool[] {
       annotations: read
     },
     {
+      name: 'new_project',
+      title: 'New project',
+      description:
+        'Starts an empty project in this window: aspect 16:9 (default), 9:16 or 1:1; name. Only when the open one has no unsaved changes and no waiting draft (otherwise nothing is changed: the user saves or discards first). It has no file yet. Call project after.',
+      inputSchema: {
+        type: 'object',
+        properties: { aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] }, name: { type: 'string' } },
+        additionalProperties: false
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    },
+    {
       name: 'transcript',
       title: 'Transcript',
       description:
@@ -319,13 +332,14 @@ export function agentTools(): AgentTool[] {
       title: 'Edit',
       description:
         'One step: ops [{"op":name,…fields}], ALL in base\'s times. A time may be a word "<line id>#i" (start; "#i>" end); a range "<line id>#i-j" or "<line id>". {"op":"apply","result":id,"except"|"only"|"include":[n…]} applies an analyze result. ' +
-        'Edits gather in ONE draft the user accepts or rejects (unless direct); reads show it. base (required): the v your seconds and word numbers come from (a read, not an edit answer). Edits follow content; an op whose content is gone or changed is dropped and said. One op that moves or retimes what is there per call. A new thing\'s "id" is a name for later ops of this call (real ids: answer New). {"op":"region.claim","range":[a,b],"tracks"?:[s]}: only your as writes there; your ops there hold when others cut elsewhere; region.release ends it. Ops:\n' +
+        'Edits gather in ONE draft the user accepts or rejects; direct:true puts them straight on the timeline as one undo step (reads show the draft). base (required): the v your seconds and word numbers come from (a read, not an edit answer). Edits follow content; an op whose content is gone or changed is dropped and said. One op that moves or retimes what is there per call. A new thing\'s "id" is a name for later ops of this call (real ids: answer New). {"op":"region.claim","range":[a,b],"tracks"?:[s]}: only your as writes there; your ops there hold when others cut elsewhere; region.release ends it. Ops:\n' +
         editOperations(),
       inputSchema: {
         type: 'object',
         properties: {
           ops: { type: 'array', items: { type: 'object', properties: { op: { type: 'string' } }, required: ['op'] }, minItems: 1, maxItems: 500 },
-          base: { type: 'string' }
+          base: { type: 'string' },
+          direct: { type: 'boolean', description: 'true: straight onto the timeline, no draft' }
         },
         // (base is required by the page for every op but help: phase 5e.)
         required: ['ops'],
@@ -387,13 +401,13 @@ export function agentTools(): AgentTool[] {
       name: 'code_clip',
       title: 'Code clip',
       description:
-        'A web page drawn live as a clip. create{name,start,end,track?}: makes folder anim/<name>/ with an empty index.html, placed over the picture; answers the folder. Write any self-contained page there; it plays as written, no network; where the page is transparent the film shows through. check:<clip id>: draws 3 moments twice; answers errors, blank or unstable frames, its length.',
+        'A web page drawn live as a clip. create{name,start,end,track?,direct?}: makes folder anim/<name>/ with an empty index.html, placed over the picture (direct: straight onto the timeline); answers the folder. Write any self-contained page there; it plays as written, no network; where the page is transparent the film shows through. check:<clip id>: draws 3 moments twice; answers errors, blank or unstable frames, its length.',
       inputSchema: {
         type: 'object',
         properties: {
           create: {
             type: 'object',
-            properties: { name: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, track: { type: 'string' } },
+            properties: { name: { type: 'string' }, start: { type: 'number' }, end: { type: 'number' }, track: { type: 'string' }, direct: { type: 'boolean' } },
             required: ['name', 'start', 'end'],
             additionalProperties: false
           },
@@ -401,6 +415,28 @@ export function agentTools(): AgentTool[] {
         },
         additionalProperties: false
       }
+    },
+    {
+      // A media file brought in or replaced by the agent: until now only the
+      // native dialogs and the drag-and-drop path could add one.
+      name: 'media',
+      title: 'Media',
+      description:
+        'The bin. import:[paths]: local video/audio/image files (absolute paths) come in and answer their ids, kinds and lengths; place one with edit clip.add. replace:{asset,path}: points an asset (id or name) at another file of the same kind (a rebuilt mix, a new take) and reads it again, without closing the app.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          import: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 50 },
+          replace: {
+            type: 'object',
+            properties: { asset: { type: 'string' }, path: { type: 'string' } },
+            required: ['asset', 'path'],
+            additionalProperties: false
+          }
+        },
+        additionalProperties: false
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     },
     {
       // GONDER-PLAN.md: the user's sends from the app (notes, a task, an

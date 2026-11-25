@@ -6,7 +6,7 @@
 // makes an answer bigger than its ceiling fails here. Phase 4A.8 (T14): the
 // ceilings are ≈ 1.3 × what was measured (FAZ4A-PLAN.md 6), and analyze is
 // measured per kind on what the finders really write.
-//   initialize + tools/list   ≤ 12 000 characters (agent-tools.test.ts)
+//   initialize + tools/list   ≤ 14 000 characters (agent-tools.test.ts)
 import './dom-stub'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'

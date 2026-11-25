@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindow } from 'electron'
 import { errorResult, type ToolResult } from './agent-protocol'
-import { connectCommands, newToken, readAgentSettings, startAgentServer, writeAgentSettings, type AgentSessions, type AgentSettings, type RunningAgentServer } from './agent-server'
+import { connectCommands, newToken, PREVIOUS_TOKEN_GRACE_MS, readAgentSettings, startAgentServer, writeAgentSettings, type AgentSessions, type AgentSettings, type RunningAgentServer } from './agent-server'
 import { PRODUCT_NAME } from '../shared/product'
 import { waitBudgetMs } from '../renderer/src/agent/wait'
 
@@ -47,6 +47,10 @@ export interface AgentHostDeps {
   /** An agent from outside began working, or a session ended: the editor
    *  windows refresh what they show of the connection. */
   changed?: () => void
+  /** A request was refused for its key: the detected agents' registrations
+   *  may be repaired (only when the user left auto-repair on). Called at most
+   *  as often as refused(); the repair itself is the caller's to rate-limit. */
+  keyRefused?: () => void
 }
 
 /** How long the page has to answer one tool call. A code film's first frame
@@ -205,13 +209,29 @@ export class AgentHost implements AgentSessions {
     })
   }
 
+  /** Whether a refused key starts repairing the detected agents (default on). */
+  autoRepairOn(): Promise<boolean> {
+    return this.queue(async () => (await this.load()).autoRepair !== false)
+  }
+
+  /** Leaves auto-repair on or off for the next refusals. */
+  setAutoRepair(on: boolean): Promise<boolean> {
+    return this.queue(async () => {
+      const s = await this.load()
+      s.autoRepair = on
+      await writeAgentSettings(this.deps.userData(), s).catch(() => undefined)
+      return s.autoRepair
+    })
+  }
+
   /** A new key (DIS-MCP-PLAN.md, 5): written first, then a running server
-   *  starts again with it; every open session ends (the old key no longer
-   *  opens the door). The user runs the add line again. */
+   *  starts again with it; every open session ends. The key before it keeps
+   *  working for PREVIOUS_TOKEN_GRACE_MS (an agent reconnecting just then is
+   *  not cut off mid-turn); after that only the new one opens the door. */
   renewKey(): Promise<AgentStatus> {
     return this.queue(async () => {
       const s = await this.load()
-      const next: AgentSettings = { ...s, token: newToken() }
+      const next: AgentSettings = { ...s, token: newToken(), previous: s.token, previousUntil: Date.now() + PREVIOUS_TOKEN_GRACE_MS }
       await writeAgentSettings(this.deps.userData(), next)
       this.settings = next
       // (What was heard before is of the old key.)
@@ -250,6 +270,10 @@ export class AgentHost implements AgentSessions {
    *  saying "old key" until something else changed.) */
   refused(why: 'key' | 'session', now = Date.now()): void {
     this.lastRefused = { why, at: now }
+    // (A key refused: a registration somewhere holds an old one. The app can
+    // repair the detected agents' own files; the request that was just
+    // refused still needs its program to reconnect.)
+    if (why === 'key') this.deps.keyRefused?.()
     const wait = 1_000 - (now - this.refusedToldAt)
     if (wait <= 0) {
       this.refusedToldAt = now
@@ -291,8 +315,10 @@ export class AgentHost implements AgentSessions {
     if (this.server) return
     // The token must outlive this run: the agent's own settings hold it.
     await writeAgentSettings(this.deps.userData(), s).catch(() => undefined)
+    // (A previous key only while its grace lasts.)
+    const prev = s.previous && s.previousUntil !== undefined && s.previousUntil > Date.now() ? { previous: s.previous, previousUntil: s.previousUntil } : {}
     try {
-      this.server = await startAgentServer({ port: this.deps.port, token: s.token, version: this.deps.version, sessions: this, call: (tool, args, session, signal) => this.call(tool, args, session, signal) })
+      this.server = await startAgentServer({ port: this.deps.port, token: s.token, ...prev, version: this.deps.version, sessions: this, call: (tool, args, session, signal) => this.call(tool, args, session, signal) })
       this.error = null
     } catch (e) {
       const code = (e as NodeJS.ErrnoException)?.code

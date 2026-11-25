@@ -20,6 +20,42 @@ import { PRODUCT_NAME } from '../../shared/product'
 import { foldKey } from '../platform-path'
 import { locateMedia } from '../project-media'
 
+const RECOVERY_NAME = /^(?:recovery\.autocut|recovery-.*\.autocut)$/i
+
+/** Moves one crash snapshot aside when the file it was of was saved after it
+ *  (its unsaved state is in that save, or was left behind on purpose): kept
+ *  under recovery-stale\, never offered as work to recover. */
+async function quarantineStale(dir: string, file: string): Promise<boolean> {
+  let parsed: { recoveredFromFile?: unknown }
+  try {
+    const stat = await fs.stat(file)
+    parsed = parseJsonFile(await fs.readFile(file, 'utf8')) as { recoveredFromFile?: unknown }
+    const of = parsed.recoveredFromFile
+    if (!isLocalFilePath(of)) return false
+    const source = await fs.stat(of).catch(() => null)
+    if (!source?.isFile() || source.mtimeMs <= stat.mtimeMs + 2_000) return false
+    const stale = path.join(dir, 'recovery-stale')
+    await fs.mkdir(stale, { recursive: true })
+    await renameWithRetry(file, path.join(stale, `${path.basename(file)}-${Date.now().toString(36)}`))
+    claimedRecoveryPaths.delete(foldKey(file))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Every stale snapshot in the profile is set aside before one is offered:
+ *  a crash long ago does not stand in front of a project saved since. */
+async function pruneStaleRecoveries(dir: string): Promise<void> {
+  const names = await fs.readdir(dir).catch(() => [] as string[])
+  for (const name of names) {
+    if (!RECOVERY_NAME.test(name)) continue
+    const file = path.join(dir, name)
+    if (claimedRecoveryPaths.has(foldKey(file))) continue
+    await quarantineStale(dir, file)
+  }
+}
+
 export function registerProjectIpc(): void {
   // Opens a project JSON. The main process itself parses it and registers the
   // media paths it references (after checking they exist), so the renderer
@@ -221,6 +257,8 @@ export function registerProjectIpc(): void {
 
   ipcMain.handle('recovery:read', async (event) => {
     const state = editorState(event.sender)
+    // (Snapshots of a file saved since are not this crash's unsaved work.)
+    await pruneStaleRecoveries(app.getPath('userData'))
     let p = state.pendingRecoveryPath
     const own = state.recoveryPath
     if (!p && own && (await fs.stat(own).catch(() => null))?.isFile()) {
@@ -268,10 +306,29 @@ export function registerProjectIpc(): void {
       state.pendingRecoveryPath = null
       return null
     }
+    const of = (parsed as { recoveredFromFile?: unknown })?.recoveredFromFile
+    // A snapshot older than the file it was of is superseded: that file was
+    // saved after this snapshot was written, so its unsaved state is either
+    // in that save or was left behind on purpose. It is moved aside (kept,
+    // never offered as "your unsaved work" after a clean close).
+    if (isLocalFilePath(of)) {
+      const source = await fs.stat(of).catch(() => null)
+      if (source?.isFile() && source.mtimeMs > savedAt + 2_000) {
+        const stale = path.join(app.getPath('userData'), 'recovery-stale')
+        try {
+          await fs.mkdir(stale, { recursive: true })
+          await renameWithRetry(p, path.join(stale, `${path.basename(p)}-${Date.now().toString(36)}`))
+        } catch {
+          /* left where it is; not offered this time */
+        }
+        claimedRecoveryPaths.delete(foldKey(p))
+        state.pendingRecoveryPath = null
+        return null
+      }
+    }
     // Same media-path vetting as opening a project: only files that really
     // exist get allowlisted for the media:// protocol (looked for beside the
     // file the snapshot was of, too).
-    const of = (parsed as { recoveredFromFile?: unknown })?.recoveredFromFile
     return { json, savedAt, resolved: await resolveProjectMedia(parsed, isLocalFilePath(of) ? of : null, event.sender) }
   })
 

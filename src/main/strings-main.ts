@@ -31,6 +31,8 @@ export const MAIN_STRINGS = {
   'image.title': { en: 'Replace timeline image', tr: 'Çizelgedeki resmi değiştir' },
   'image.button': { en: 'Replace image', tr: 'Resmi değiştir' },
   'project.open': { en: 'Open project', tr: 'Proje aç' },
+  'open.missing': { en: 'That project file is not there.', tr: 'O proje dosyası yerinde yok.' },
+  ok: { en: 'OK', tr: 'Tamam' },
   'project.exportFolder': { en: 'Choose a folder for the exported files', tr: 'Dışa aktarılan dosyalar için bir klasör seç' },
   'project.findFolders': { en: 'Find projects in these folders', tr: 'Bu klasörlerde proje bul' },
   // the sample project's folder and file (phase 9b)

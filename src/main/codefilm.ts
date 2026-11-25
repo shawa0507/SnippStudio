@@ -9,9 +9,9 @@
 // (codefilm-host.ts) at __snipp/host.html. No Electron here: the parts are
 // tested in Node.
 
-import { createReadStream, promises as fs, watch, type FSWatcher } from 'node:fs'
+import { createReadStream, promises as fs, watch, type Dirent, type FSWatcher } from 'node:fs'
 import { currentPlatform, foldKey, isInside as isInsidePath, pathApi, type Platform } from './platform-path'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { HOST_HTML } from './codefilm-host'
 import { GUARD_JS } from './codefilm-guard'
@@ -556,6 +556,41 @@ export async function reallyChanged(root: string, rel: string, seen: Map<string,
   seen.set(rel, key)
   if (before !== undefined) return before !== key
   return st.mtimeMs >= since - 1000
+}
+
+/** A fingerprint of the files a film serves (relative name + size + write
+ *  time), the ignored parts left out; null when the folder holds none.
+ *  Unlike fs.watch this cannot miss an atomic rename or a save an editor made
+ *  through a temp file: the frame paths compare it before drawing. */
+export async function filmStamp(root: string): Promise<string | null> {
+  const parts: string[] = []
+  const MAX = 8000
+  const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
+    if (depth > 12 || parts.length >= MAX) return
+    let list: Dirent[]
+    try {
+      list = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of list) {
+      if (parts.length >= MAX) return
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (ignoredChange(r)) continue
+      const full = pathApi().join(dir, e.name)
+      if (e.isDirectory()) {
+        await walk(full, r, depth + 1)
+        continue
+      }
+      if (!e.isFile()) continue
+      const st = await fs.stat(full).catch(() => null)
+      if (st) parts.push(`${r.toLowerCase()}:${st.size}:${Math.round(st.mtimeMs)}`)
+    }
+  }
+  await walk(root, '', 0)
+  if (!parts.length) return null
+  parts.sort()
+  return createHash('sha1').update(parts.join('\n')).digest('hex')
 }
 
 /** Watches a film folder; `changed` gets the files (relative) after 300 ms of

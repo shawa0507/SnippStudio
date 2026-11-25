@@ -10,7 +10,7 @@ import test from 'node:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { FilmRegistry, injectGuard, LIB_PREFIX, mapLibraries, serveFilm } from '../main/codefilm'
+import { FilmRegistry, filmStamp, injectGuard, LIB_PREFIX, mapLibraries, serveFilm } from '../main/codefilm'
 import { guardMain, type SnippClock } from '../main/codefilm-guard'
 import { HOST_HTML, pageContent, pageDuration, sameFrame } from '../main/codefilm-host'
 import { clampRecord } from '../renderer/src/media/codefilm-limits'
@@ -319,6 +319,27 @@ test('watchFilm: a file only read (Windows updating its last-access time) does n
     rmSync(f)
     assert.equal(await reallyChanged(dir, 'a.js', seen, since), true)
     void statSync
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('filmStamp: a served file changing changes it; an ignored file does not', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'snipp-stamp-'))
+  try {
+    writeFileSync(path.join(dir, 'index.html'), 'a')
+    const one = await filmStamp(dir)
+    assert.match(one ?? '', /^[a-f0-9]{40}$/)
+    // (A note beside the page is not the film's code: no reload.)
+    writeFileSync(path.join(dir, 'notes.md'), 'x'.repeat(100))
+    assert.equal(await filmStamp(dir), one)
+    // A page written again is a new stamp (the frame paths reload on it).
+    writeFileSync(path.join(dir, 'index.html'), 'b')
+    const two = await filmStamp(dir)
+    assert.notEqual(two, one)
+    // Nothing served at all: null.
+    rmSync(path.join(dir, 'index.html'))
+    assert.equal(await filmStamp(dir), null)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

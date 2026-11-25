@@ -240,8 +240,9 @@ test('nothing more goes to the agent: the definitions are no bigger, and an edit
   // (11 483 when this was written; 11 495 with track.setMagnet, merged the same day;
   // 11 637 with the wait tool's optional plan, TOKEN-PLAN.md: 142 characters;
   // 11 938 with the optional worker label, EKIP-PLAN.md: 301 characters.)
-  // (cogalt, 23 Nov: 11 953 with clip.duplicate and job start + wait.)
-  assert.ok(size <= 11_953, `initialize + tools/list: ${size} characters (11 953 with clip.duplicate)`)
+  // (cogalt, 23 Nov: 11 953 with clip.duplicate and job start + wait;
+  // 12 961 with the media tool; new_project adds the clean start. Limit 14 000.)
+  assert.ok(size <= 14_000, `initialize + tools/list: ${size} characters`)
   const run = async (words: boolean): Promise<string> => {
     open(talk(20, true), 'draft')
     return editTool({ ops: [{ op: 'timeline.cutRanges', ranges: [[4, 5]] }, { op: 'marker.add', time: 2, note: 'here' }], base: read() }, ctxOf(words ? { words: editSaid } : {}))

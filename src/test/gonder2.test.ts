@@ -53,7 +53,7 @@ test('the chip: waiting for you, awaits your reply, done', () => {
   for (const s of ['working', 'quiet', 'waiting', 'reply', 'draft', 'done', 'idle'] as const) assert.ok(t(`gonder2.phase.${s}`).length <= 18, s)
 })
 
-test('what goes to the agent is as it was: the definitions stay 11 936 characters', () => {
-  // (cogalt, 23 Nov: 11 953 with clip.duplicate and job start + wait.)
-  assert.equal(definitionsSize(), 11_953)
+test('what goes to the agent stays within its budget: at most 14 000 characters', () => {
+  // (11 953 after cogalt; 12 961 with media; new_project adds the clean start.)
+  assert.ok(definitionsSize() <= 14_000, String(definitionsSize()))
 })

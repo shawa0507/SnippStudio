@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { antigravityPrintLine, claudeAddLine, codexEnvQueryArgs, codexPersistLine, codexRegisterLine, psq, startLine, tokenSetupLine } from '../main/agent-connect'
+import { antigravityPrintLine, claudeAddLine, codexEnvQueryArgs, codexPersistLine, codexRegisterLine, openCodeRegisterLine, psq, startLine, tokenSetupLine } from '../main/agent-connect'
 import { codexTokenEnv } from '../shared/product'
 
 const Q = ['\u2018', '\u2019', '\u201A', '\u201B']
@@ -32,6 +32,7 @@ test('every line built for Windows quotes the path with psq', () => {
     claudeAddLine(file, url, 'snippstudio', 'win32'),
     codexPersistLine(file, 'snippstudio', 'win32')!,
     codexRegisterLine(file, url, 'snippstudio', 'win32'),
+    openCodeRegisterLine(file, url, 'snippstudio', 'win32'),
     antigravityPrintLine(file, url, 'win32'),
     tokenSetupLine(file, 'win32'),
     startLine(tokenSetupLine(file, 'win32'), 'opencode', 'win32', `C:\\Users\\O\u2019Brien\\bin\\opencode.cmd`),
@@ -41,6 +42,15 @@ test('every line built for Windows quotes the path with psq', () => {
     assert.ok(l.includes(quoted), l)
     assert.equal(l.includes(`'${file}'`), false, l)
   }
+})
+
+test('the OpenCode reconnect: its config entry updated in place, the key only in the environment', () => {
+  const line = openCodeRegisterLine('C:\\p\\agent.json', 'http://127.0.0.1:47810/mcp', 'snippstudio', 'win32', 'C:\\Program Files\\opencode\\opencode.cmd')
+  assert.match(line, /SetEnvironmentVariable\('SNIPP_MCP_TOKEN'/)
+  assert.match(line, /mcp add snippstudio --url 'http:\/\/127\.0\.0\.1:47810\/mcp' --header 'Authorization=Bearer \{env:SNIPP_MCP_TOKEN\}' --global/)
+  assert.ok(line.includes('& \'C:\\Program Files\\opencode\\opencode.cmd\''))
+  // (The line never holds a key: it reads the profile's file itself.)
+  assert.equal(/Bearer [A-Za-z0-9_-]{20,}/.test(line), false)
 })
 
 test('PowerShell: a profile path holding typographic quotes is read as a path, never run', { skip: process.platform !== 'win32' }, () => {

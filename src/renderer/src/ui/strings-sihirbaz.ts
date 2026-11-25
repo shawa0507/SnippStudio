@@ -111,6 +111,9 @@ export const STRINGS_SIHIRBAZ = {
   'wiz.fix.step': { en: 'Go to step {n}', tr: '{n}. adıma git' },
   'wiz.fix.copy': { en: 'Copy the command', tr: 'Komutu kopyala' },
   'wiz.fix.access': { en: 'Turn access on', tr: 'Erişimi aç' },
+  'wiz.fix.repair': { en: 'Reconnect', tr: 'Yeniden bağla' },
+  'wiz.repaired': { en: 'The program now points at this copy with the current key.', tr: 'Program artık bu kopyaya güncel anahtarla bağlanıyor.' },
+  'wiz.repairFailed': { en: 'The reconnect did not finish; copy the command instead.', tr: 'Yeniden bağlanma tamamlanmadı; onun yerine komutu kopyala.' },
   // ---- 5 try ----------------------------------------------------------------------
   'wiz.s5.title': { en: 'Try it', tr: 'Dene' },
   'wiz.s5.text.claude': { en: 'Write this to Claude Code:', tr: 'Claude Code’a şunu yaz:' },

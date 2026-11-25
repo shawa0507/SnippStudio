@@ -4,7 +4,7 @@
 // server (its protocol, its door, the text its tools give). Phase 9a: the
 // name comes from shared/product.ts (src/test/product-name.test.ts).
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -74,6 +74,11 @@ test('the agent door: this computer, the token, POST, and never a web page', () 
   assert.equal(refusalFor({ ...good, method: 'PUT' }, TOKEN, PORT)?.status, 405)
   // DELETE ends a session (MCP Streamable HTTP).
   assert.equal(refusalFor({ ...good, method: 'DELETE' }, TOKEN, PORT), null)
+  // The key before a renew opens the door for its grace window, and not after it.
+  const previous = 'b'.repeat(43)
+  const last = { ...good, headers: { ...good.headers, authorization: `Bearer ${previous}` } }
+  assert.equal(refusalFor(last, TOKEN, PORT, previous, Date.now() + 60_000), null)
+  assert.equal(refusalFor(last, TOKEN, PORT, previous, Date.now() - 1)?.status, 401)
 })
 
 test('agent settings: off by default, a token that is kept', async () => {
@@ -82,11 +87,15 @@ test('agent settings: off by default, a token that is kept', async () => {
     const first = await readAgentSettings(dir)
     assert.equal(first.enabled, false)
     assert.match(first.token, /^[A-Za-z0-9_-]{43}$/)
-    // Nothing was written by reading: another read gives another token.
-    assert.notEqual((await readAgentSettings(dir)).token, first.token)
+    // The first read keeps its token (written, with a backup): every launch
+    // after it gets the same one, or every registered agent would be refused.
+    assert.equal((await readAgentSettings(dir)).token, first.token)
     await writeAgentSettings(dir, { enabled: true, token: first.token })
     assert.deepEqual(await readAgentSettings(dir), { enabled: true, token: first.token })
-    // A damaged token is not trusted: off, with a new one.
+    // A damaged file is recovered from the backup as the same settings.
+    writeFileSync(path.join(dir, 'agent.json'), '{ not json')
+    assert.deepEqual(await readAgentSettings(dir), { enabled: true, token: first.token })
+    // A damaged token in both is not trusted: off, with a new one.
     await writeAgentSettings(dir, { enabled: true, token: 'x' })
     const again = await readAgentSettings(dir)
     assert.equal(again.enabled, false)
@@ -125,16 +134,16 @@ test('MCP: initialize, the tool list, a call, and what is refused', async () => 
   assert.deepEqual(resultOf(await handleRpc({ jsonrpc: '2.0', id: 'p', method: 'ping' }, echo)), {})
 
   const list = await handleRpc({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, echo)
-  // Tools v2 (phase 4A): eight (src/test/agent-tools.test.ts).
-  assert.deepEqual(resultOf(list).tools.map((t: { name: string }) => t.name), ['project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'wait'])
+  // Tools v2 (phase 4A): twelve (src/test/agent-tools.test.ts).
+  assert.deepEqual(resultOf(list).tools.map((t: { name: string }) => t.name), ['project', 'new_project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'media', 'wait'])
   for (const t of AGENT_TOOLS) {
     assert.equal((t.inputSchema as { type: string }).type, 'object', t.name)
     assert.ok(t.description.length > 40, t.name)
   }
-  // Only the cut changes the timeline; the two note tools change a note's
-  // status and answer, and nothing else.
-  assert.deepEqual(AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name), ['edit', 'notes', 'job'])
-  assert.deepEqual(AGENT_TOOLS.filter((t) => t.annotations?.destructiveHint === true).map((t) => t.name), ['edit'])
+  // The timeline (edit), the notes, the jobs, and the bin's files (media)
+  // change something; the rest only read.
+  assert.deepEqual(AGENT_TOOLS.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name), ['new_project', 'edit', 'notes', 'job', 'media'])
+  assert.deepEqual(AGENT_TOOLS.filter((t) => t.annotations?.destructiveHint === true).map((t) => t.name), ['new_project', 'edit', 'media'])
 
   const called = await handleRpc({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'transcript', arguments: { words: true } } }, echo)
   assert.deepEqual(resultOf(called), { content: [{ type: 'text', text: 'transcript:{"words":true}' }] })

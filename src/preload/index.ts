@@ -236,6 +236,19 @@ const api = {
   /** (The dropped File, never a path: droppedPath above.) */
   registerDroppedMedia: (file: File): Promise<ImportedFile | null> =>
     ipcRenderer.invoke('media:register-dropped', droppedPath(file)),
+  /** The agent's import: local paths it names (validated in main: a media
+   *  extension, a file that is there) come back as media:// info. */
+  importMediaPaths: (paths: string[]): Promise<ImportedFile[]> => ipcRenderer.invoke('media:import-paths', paths),
+  /** Tell main which media files this window shows (path, size, mtime): a
+   *  file changed on disk comes back over onMediaChanged. */
+  watchMedia: (files: { path: string; size: number; mtime?: number }[]): void => ipcRenderer.send('media:watch', files),
+  onMediaChanged: (cb: (files: { path: string; size: number; mtime: number }[]) => void): (() => void) => {
+    const listener = (_e: unknown, files: { path: string; size: number; mtime: number }[]): void => cb(files)
+    ipcRenderer.on('media:changed', listener)
+    return () => {
+      ipcRenderer.removeListener('media:changed', listener)
+    }
+  },
   /** Quick-save to a project path already chosen via a dialog this session.
    *  error 'changed-on-disk' (diskTime: the file's time now): another program
    *  wrote the file since this window opened or saved it, and nothing was
@@ -274,6 +287,13 @@ const api = {
   },
   /** Confirms the app may now close (after a successful save). */
   confirmQuit: (): void => ipcRenderer.send('app:quit-confirmed'),
+  /** The user (or --reload) asked for a save and a clean restart. */
+  onSaveAndRestart: (cb: () => void): void => {
+    ipcRenderer.on('app:save-and-restart', cb)
+  },
+  /** Restarts the app at once; only after the project was saved (main
+   *  refuses while it still has unsaved changes). */
+  restartApp: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:restart'),
   /** A project file the OS asked us to open — a double-clicked .snipp, at
    *  launch or while the window is already up. Main allowlists the path before
    *  sending it, so opening it goes through the same guarded reader as a
@@ -513,6 +533,9 @@ const api = {
     },
     /** Tell this window when the film's files change (or stop). */
     watch: (id: string, on: boolean): void => ipcRenderer.send('codefilm:watch', id, on),
+    /** A fingerprint of the film folder's files now (size + write time): the
+     *  frame paths compare it before drawing, so an edit is never missed. */
+    stamp: (id: string): Promise<string | null> => ipcRenderer.invoke('codefilm:stamp', id),
     /** The addresses the main process refused the film (its own folder only; never media://). */
     blocked: (id: string): Promise<string[]> => ipcRenderer.invoke('codefilm:blocked', id),
     /** A code clip folder's versions (phase 5e): how many, and the one "back" puts in place. */
@@ -630,6 +653,12 @@ const api = {
     codexEnv: (): Promise<'same' | 'different' | 'missing' | 'unknown'> => ipcRenderer.invoke('agentLink:codexEnv'),
     /** Read only (`claude mcp get`, `codex mcp get --json`): the verdict only. */
     check: (which: 'claude' | 'codex'): Promise<AgentRegistration> => ipcRenderer.invoke('agentLink:check', which),
+    /** Runs the step-2 line itself (Claude Code, Codex, OpenCode): a
+     *  reconnect without the command window. The key stays in the profile's
+     *  file (an environment variable at most). */
+    repair: (which: 'claude' | 'codex' | 'opencode'): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agentLink:repair', which),
+    autoRepair: (): Promise<boolean> => ipcRenderer.invoke('agentLink:autoRepair'),
+    setAutoRepair: (on: boolean): Promise<boolean> => ipcRenderer.invoke('agentLink:setAutoRepair', on === true),
     renewKey: (): Promise<AgentSessionStatus | null> => ipcRenderer.invoke('agentLink:renewKey'),
     /** An agent from outside began or ended work: ask for the status again. */
     onChanged: (cb: () => void): (() => void) => {

@@ -111,7 +111,7 @@ test('raw sizes per answer kind; the inputs are not touched', () => {
   // Its own size, and unknown.
   assert.equal(rawTokens('same', sent), tokensOf(sent))
   assert.equal(rawTokens(null, sent), null)
-  assert.deepEqual([...SAME_AS_RAW].sort(), ['changes', 'code_clip', 'edit', 'job', 'notes', 'wait'])
+  assert.deepEqual([...SAME_AS_RAW].sort(), ['changes', 'code_clip', 'edit', 'job', 'media', 'new_project', 'notes', 'wait'])
 })
 
 test('the store keeps an answer\'s raw on its event; unknown leaves it out', () => {

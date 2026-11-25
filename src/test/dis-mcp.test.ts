@@ -221,7 +221,7 @@ test('an agent from outside is "connected" once it asks for the tools; a bare he
   }
 })
 
-test('a new key: written to the profile, the server starts again with it, the old key is refused', async () => {
+test('a new key: written to the profile, the server starts again with it, the old one keeps a short grace', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'dis-mcp-key-'))
   const port = await freePort()
   const host = new AgentHost({ userData: () => dir, port, version: '1', name: 'snipp-dev', forced: false, target: () => null })
@@ -236,9 +236,14 @@ test('a new key: written to the profile, the server starts again with it, the ol
     assert.equal(JSON.stringify(st).includes(old), false)
     const fresh = (await host.key()).token
     assert.notEqual(fresh, old)
-    assert.equal((JSON.parse(readFileSync(path.join(dir, 'agent.json'), 'utf8')) as { token: string; enabled: boolean }).token, fresh)
+    const saved = JSON.parse(readFileSync(path.join(dir, 'agent.json'), 'utf8')) as { token: string; enabled: boolean; previous?: string; previousUntil?: number }
+    assert.equal(saved.token, fresh)
+    assert.equal(saved.previous, old)
+    assert.ok((saved.previousUntil ?? 0) > Date.now(), 'the key before the renew has its grace window')
     assert.equal(host.external(), null, 'every session ended')
-    assert.equal((await rpc(port, old, 'initialize')).status, 401)
+    // (An agent its turn away does not have to be re-registered that
+    // second: the key before still opens the door while the grace lasts.)
+    assert.equal((await rpc(port, old, 'initialize')).status, 200)
     assert.equal((await rpc(port, fresh, 'initialize')).status, 200)
     // Access off: a new key all the same, nothing listens.
     await host.setEnabled(false)
@@ -247,6 +252,29 @@ test('a new key: written to the profile, the server starts again with it, the ol
     assert.notEqual((await host.key()).token, fresh)
   } finally {
     await host.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a refused key asks for a repair of the detected agents; a refused session does not', () => {
+  let asked = 0
+  const host = new AgentHost({ userData: () => '.', port: 1, version: '1', name: 'snipp', forced: false, target: () => null, keyRefused: () => asked++ })
+  host.refused('key')
+  host.refused('key')
+  assert.equal(asked, 2)
+  host.refused('session')
+  assert.equal(asked, 2, 'an old window is not a key problem')
+})
+
+test('auto-repair is on by default, and its switch is kept in the profile', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dis-mcp-auto-'))
+  try {
+    const one = new AgentHost({ userData: () => dir, port: 1, version: '1', name: 'snipp', forced: false, target: () => null })
+    assert.equal(await one.autoRepairOn(), true)
+    assert.equal(await one.setAutoRepair(false), false)
+    const two = new AgentHost({ userData: () => dir, port: 1, version: '1', name: 'snipp', forced: false, target: () => null })
+    assert.equal(await two.autoRepairOn(), false)
+  } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })

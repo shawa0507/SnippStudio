@@ -21,7 +21,7 @@ import { Button, Icon, Segmented, notify, t as t0, useT, type StringKey } from '
 import { PRODUCT_NAME } from '../../../../shared/product'
 import { revealIn } from '../../ui/reveal'
 import { SETUP } from './agents'
-import { PROGRAMS, checkButtonBusy, checkRows, checkable, defaultProgram, familyOf, lastSeen, stepStates, timeOfDay, type CodexKey, type Fix, type Mark, type Program, type Row, type StepState } from './wizard-model'
+import { PROGRAMS, checkButtonBusy, checkRows, checkable, defaultProgram, familyOf, lastSeen, stepStates, timeOfDay, type CodexKey, type Family, type Fix, type Mark, type Program, type Row, type StepState } from './wizard-model'
 import type { AgentRegistration } from '../../../../preload/index'
 import './connect-wizard.css'
 
@@ -151,6 +151,8 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
   // (The same, for the button: it is off for the whole of a check, so a press
   // it shows as possible is never dropped by the guard in check.)
   const [inCheck, setInCheck] = useState(false)
+  // (A reconnect running: its button is off until the program answered.)
+  const [repairing, setRepairing] = useState(false)
   const lastCheck = useRef(0)
   const app = PRODUCT_NAME
 
@@ -249,12 +251,25 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
     revealIn(steps.current[n - 1], 'nearest', { margin: 8 })
     setFlash(n)
   }
+  const repairNow = async (fam: 'claude' | 'codex' | 'opencode'): Promise<void> => {
+    if (repairing) return
+    setRepairing(true)
+    try {
+      const r = await api?.agentSession.repair(fam).catch(() => null)
+      notify({ text: t(r?.ok ? 'wiz.repaired' : 'wiz.repairFailed'), kind: r?.ok ? 'info' : 'error' })
+      if (r?.ok) await check(p, true)
+    } finally {
+      setRepairing(false)
+    }
+  }
+  const canRepair = (fam: Family): fam is 'claude' | 'codex' | 'opencode' => fam === 'claude' || fam === 'codex' || fam === 'opencode'
   const runFix = (fix: Fix): void => {
     if ('go' in fix) goTo(fix.go)
     else if ('copy' in fix) void copyRegister()
+    else if ('repair' in fix) void repairNow(fix.repair)
     else void connectAgent(true)
   }
-  const fixLabel = (fix: Fix): string => ('go' in fix ? t('wiz.fix.step', { n: String(fix.go) }) : 'copy' in fix ? t('wiz.fix.copy') : t('wiz.fix.access'))
+  const fixLabel = (fix: Fix): string => ('go' in fix ? t('wiz.fix.step', { n: String(fix.go) }) : 'copy' in fix ? t('wiz.fix.copy') : 'repair' in fix ? t('wiz.fix.repair') : t('wiz.fix.access'))
   const ref = (i: number) => (el: HTMLDivElement | null): void => {
     steps.current[i] = el
   }
@@ -329,9 +344,16 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
 
       <Step n={2} state={states[1]} title={s2title} text={s2text} flash={flash === 2} stepRef={ref(1)}
         action={action(2, (v) => (
-          <Button size="sm" variant={v} icon="copy" onClick={() => void copyRegister()} testid="settings.agent.register">
-            {t(fam === 'opencode' ? 'wiz.s2.copySetting' : 'wiz.s2.copy')}
-          </Button>
+          <div className="settings-row">
+            <Button size="sm" variant={v} icon="copy" onClick={() => void copyRegister()} testid="settings.agent.register">
+              {t(fam === 'opencode' ? 'wiz.s2.copySetting' : 'wiz.s2.copy')}
+            </Button>
+            {canRepair(fam) && (
+              <Button size="sm" variant="secondary" icon="rotate-cw" disabled={repairing} onClick={() => void repairNow(fam)} testid="settings.agent.repair">
+                {t('wiz.fix.repair')}
+              </Button>
+            )}
+          </div>
         ))}>
         {lines && <div className="wiz-cmd" data-testid="settings.agent.register.text">{lines.register}</div>}
         {s2result && s2result.mark !== 'none' && <Result mark={s2result.mark} testid="settings.agent.step.2.result">{t(`wiz.s2.res.${s2result.say}` as StringKey, { agent, time: s2result.at ? timeOfDay(s2result.at) : '' })}</Result>}
@@ -360,7 +382,7 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
               <Icon name={MARK_ICON[r.mark]} size={14} />
               <span className="wiz-row-text">{rowText(r)}</span>
               {r.fix && r.mark === 'bad' && (
-                <Button size="sm" variant="secondary" className="wiz-fix" icon={'copy' in r.fix ? 'copy' : undefined} onClick={() => runFix(r.fix as Fix)} testid={`settings.agent.row.${r.id}.fix`}>
+                <Button size="sm" variant="secondary" className="wiz-fix" icon={'copy' in r.fix ? 'copy' : 'repair' in r.fix ? 'rotate-cw' : undefined} onClick={() => runFix(r.fix as Fix)} testid={`settings.agent.row.${r.id}.fix`}>
                   {fixLabel(r.fix)}
                 </Button>
               )}

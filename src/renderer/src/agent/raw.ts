@@ -20,7 +20,7 @@ import { tokensOf, type AnswerSize } from './tokens'
 export type RawAnswer = AnswerSize | 'same' | null
 
 /** The tools whose answers are not a short form of anything bigger. */
-export const SAME_AS_RAW: ReadonlySet<string> = new Set(['edit', 'code_clip', 'job', 'wait', 'changes', 'notes'])
+export const SAME_AS_RAW: ReadonlySet<string> = new Set(['edit', 'code_clip', 'media', 'new_project', 'job', 'wait', 'changes', 'notes'])
 
 /** Raw tokens of an answer, or null when unknown. */
 export function rawTokens(raw: RawAnswer, sent: AnswerSize): number | null {

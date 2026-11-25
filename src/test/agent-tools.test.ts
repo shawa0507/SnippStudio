@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 SnippStudio contributors
-// SnippStudio phase 4A: the agent tools v2 — eight tools, the edit tool's
+// SnippStudio phase 4A: the agent tools v2 — twelve tools, the edit tool's
 // operations generated from the commands, and the size an agent pays for them
-// on every turn (initialize + tools/list at most 12 000 characters).
+// on every turn (initialize + tools/list at most 14 000 characters).
 import './dom-stub'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -18,10 +18,10 @@ export function definitionsSize(): number {
   return init.length + list.length
 }
 
-test('ten tools (phase 5e: code_clip; GONDER-PLAN.md: wait, in the place kept), the old seven gone', () => {
+test('twelve tools (phase 5e: code_clip; GONDER-PLAN.md: wait; media: import and replace; new_project), the old seven gone', () => {
   const names = agentTools().map((t) => t.name)
-  assert.deepEqual(names, ['project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'wait'])
-  assert.ok(names.length + RESERVED_TOOLS.length <= 10)
+  assert.deepEqual(names, ['project', 'new_project', 'transcript', 'frames', 'changes', 'analyze', 'edit', 'notes', 'job', 'code_clip', 'media', 'wait'])
+  assert.ok(names.length + RESERVED_TOOLS.length <= 12)
   for (const old of ['project_summary', 'frame', 'cut_ranges', 'note_image', 'note_update']) assert.ok(!names.includes(old), old)
   for (const t of agentTools()) assert.equal((t.inputSchema as { type: string }).type, 'object', t.name)
 })
@@ -84,11 +84,10 @@ test('phase 5e, decision 4: the full ops written out, the others by name, their 
   assert.throws(() => helpCall([{ op: 'help', names: ['clip.slip'] }, { op: 'clip.split' }]), /alone/)
 })
 
-// (Phase 5e held it at 11 400; the wait tool and the instructions' one
-// sentence of the loop take it to the project's own limit, 12 000:
-// GONDER-PLAN.md, 8.)
-test('budget: initialize + tools/list (at most 12 000 characters)', () => {
+// (Phase 5e held it at 11 400; media took it to 12 961. new_project adds
+// the agent's way to start clean: the limit is 14 000.)
+test('budget: initialize + tools/list (at most 14 000 characters)', () => {
   const size = definitionsSize()
   console.log(`  definitions: ${size} chars (edit tool ${JSON.stringify(agentTools().find((t) => t.name === 'edit')).length})`)
-  assert.ok(size <= 12_000, `${size} characters`)
+  assert.ok(size <= 14_000, `${size} characters`)
 })

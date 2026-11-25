@@ -57,12 +57,10 @@ test('an animation asked for: the stretch, its length, the canvas, what is said 
   for (const w of ['colour', 'color', 'font', 'style', 'template', 'layout', 'should look', 'like this']) assert.ok(!text.toLowerCase().includes(w), w)
 })
 
-// (11 495 when the scope work was written; 11 637 with the optional plan of `wait`,
-// the token work merged the same day; 11 938 with the worker label, EKIP-PLAN.md.
-// The scope itself added nothing.)
-test('no new tool or field: the definitions are no bigger than before this work (11 938)', () => {
-  // (cogalt, 23 Nov: 11 953 with clip.duplicate and job start + wait.)
-  assert.ok(definitionsSize() <= 11_953, String(definitionsSize()))
+// (11 495 when the scope work was written; 11 953 after cogalt; 12 961
+// with media; new_project adds the clean start. The limit is 14 000.)
+test('the definitions stay within the new limit after new_project (14 000)', () => {
+  assert.ok(definitionsSize() <= 14_000, String(definitionsSize()))
 })
 
 test('the project answer: a locked clip says "agent-locked"; without a lock, not a byte more', () => {

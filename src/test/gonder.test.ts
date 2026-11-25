@@ -104,9 +104,9 @@ test('how long a wait waits: under each agent program\'s limit, 5–240 s, the s
   assert.equal(waitBudgetMs(30, 'x'), 30_000 + WAIT_MARGIN_MS)
 })
 
-test('the wait tool: ten tools in all, a short definition, the loop in one sentence of the instructions', () => {
+test('the wait tool: twelve tools in all, a short definition, the loop in one sentence of the instructions', () => {
   const tools = agentTools()
-  assert.equal(tools.length + RESERVED_TOOLS.length, 10)
+  assert.equal(tools.length + RESERVED_TOOLS.length, 12)
   const w = tools.find((t) => t.name === 'wait')!
   assert.ok(w, 'wait is offered')
   // (The optional plan: TOKEN-PLAN.md.)

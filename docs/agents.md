@@ -25,7 +25,7 @@ All in one place: **Settings → Agent connection** (the gear in the top bar, **
 4. **Check**: four lines, each ticked or crossed with what to do: the registration was found, the key is up to date, SnippStudio is listening, the agent connected (with its time). It only reads (`claude mcp get`, `codex mcp get --json`, and on Windows whether your Codex key matches, compared inside PowerShell).
 5. **Try it**: copy the sentence for the agent; when it connects the step says so.
 
-The development copy (SnippStudio Dev) is added under its own name (`snippstudio-dev`), its own port and, for Codex, its own variable (`SNIPPSTUDIO_DEV_TOKEN`); neither writes over the other. **Renew key** makes a new key (asked twice): the old one stops working, every connected agent is cut off, and you run the commands again. SnippStudio never changes your global agent settings, and writes nothing into the project folder.
+The development copy (SnippStudio Dev) is added under its own name (`snippstudio-dev`), its own port and, for Codex, its own variable (`SNIPPSTUDIO_DEV_TOKEN`); neither writes over the other. **Renew key** makes a new key (asked twice): every connected agent is cut off and the old key stops working after 10 minutes. **Reconnect** (in step 2, or on the check row that found an old key) runs step 2 for you for a program it found: Claude Code, Codex and OpenCode each write their own registration; SnippStudio only starts that program's own command. With **Repair detected agents automatically** on (the default, under Details), a request refused for its key repairs the registration of the programs found here by itself; the agent that was refused still reconnects or restarts. It never changes anything else of your agent settings, and writes nothing into the project folder.
 
 Turning **Agent access** off closes the server: nothing listens.
 
@@ -39,6 +39,7 @@ Turning **Agent access** off closes the server: nothing listens.
 | Tool | What it does |
 |---|---|
 | `project` | The open project: size, length, version, tracks and clips, subtitles, markers, media not yet placed. Called first. |
+| `new_project` | Starts an empty project in this window (16:9, 9:16 or 1:1, optional name). Only when the open one has no unsaved changes and no waiting draft; it has no file yet. |
 | `transcript` | What is said, line by line with times; word times only for a range that must be cut finely. |
 | `frames` | The picture at 1–12 moments, drawn as the export draws it, in one image (a grid with the times). |
 | `changes` | What changed since a version it read: cheaper than reading everything again. |
@@ -47,6 +48,7 @@ Turning **Agent access** off closes the server: nothing listens.
 | `notes` | Your work notes: it reads the ones waiting and answers them; you approve. |
 | `job` | Long work: subtitles written by SnippStudio's own speech model. The language is the project's spoken language (the Subtitles tab's choice; a new project takes the interface's language), or Turkish or English when the agent names one. The `project` answer says which it is. |
 | `code_clip` | A code clip: makes its folder with an empty `index.html` and places it; checks a page (errors, blank or unstable frames, its length). |
+| `media` | The bin: brings local video, sound and picture files in by path (`import`), and points an asset at a new file of the same kind (`replace`: a rebuilt mix, a new take) without closing the app. |
 | `wait` | Waits for what you send from SnippStudio: returns the moment you send (notes, a job you wrote, your answer on the draft); if nothing comes it says "nothing yet" after a few minutes and the agent calls it again. |
 
 The agent writes a code clip's page as it wishes: SnippStudio does not tell it how to draw, and plays the page as written (no network).

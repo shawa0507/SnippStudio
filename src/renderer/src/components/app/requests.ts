@@ -4,7 +4,7 @@
 // the empty states' buttons (import, export, open the templates), the tour
 // and the sample project from the File menu's Help part. The shell (App.tsx)
 // and the dock (WorkspaceDock.tsx) listen; a part does not need their props.
-export type ShellRequest = 'import' | 'export' | 'dock:templates' | 'dock:text' | 'dock:filters' | 'dock:captions' | 'dock:voiceover' | 'tour' | 'sample'
+export type ShellRequest = 'import' | 'export' | 'dock:templates' | 'dock:text' | 'dock:filters' | 'dock:captions' | 'dock:voiceover' | 'tour' | 'sample' | 'restart'
 
 const EVENT = 'snipp:shell-request'
 
