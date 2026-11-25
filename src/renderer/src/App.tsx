@@ -46,9 +46,10 @@ import { NewerFileDialog } from './components/app/NewerFileDialog'
 import { BackupsDialog, backupTime, type BackupEntry } from './components/app/BackupsDialog'
 import { refreshChangedAndTell } from './media/relink-ui'
 import { watchMediaFiles } from './media/live-watch'
+import { listenChat } from './agent/chat'
 import { autosaveOnce } from './media/autosave'
 import { releaseAllMedia } from './media/sources'
-import { dismissToast, notify, t, useT } from './ui'
+import { IconButton, dismissToast, notify, t, useT } from './ui'
 import { t as tr } from './ui/strings'
 import { capturePlayheadThumbnail, upsertRecent } from './media/recents'
 import { ProjectHome } from './components/ProjectHome'
@@ -102,7 +103,8 @@ export function App(): JSX.Element {
       const next = {
         bin: Math.min(BIN_MAX_PX, Math.max(BIN_MIN_PX, patch.bin ?? prev.bin)),
         inspector: Math.min(520, Math.max(200, patch.inspector ?? prev.inspector)),
-        timelineRatio: patch.timelineRatio ?? prev.timelineRatio
+        timelineRatio: patch.timelineRatio ?? prev.timelineRatio,
+        inspectorOpen: patch.inspectorOpen ?? prev.inspectorOpen
       }
       saveLayout(next)
       return next
@@ -333,6 +335,10 @@ export function App(): JSX.Element {
   // A media file changed on disk while the project is open is read again
   // (main watches the paths; the asset, its peaks and its picture follow).
   useEffect(() => watchMediaFiles(), [])
+  // The in-app chat's stream (AGENT-CHAT-PLAN.md): one listener for the page.
+  useEffect(() => {
+    listenChat()
+  }, [])
 
   /**
    * Nothing survives the mouse coming up.
@@ -1525,7 +1531,13 @@ export function App(): JSX.Element {
   }, [handleSave, bindings])
 
   return (
-    <div className={`app${watching ? ' is-watch' : ''}`} style={{ gridTemplateRows: `48px 1fr 6px ${timelineH}px` }}>
+    <div
+      className={`app${watching ? ' is-watch' : ''}${layout.inspectorOpen ? '' : ' is-inspector-closed'}`}
+      style={{
+        gridTemplateRows: `48px 1fr 6px ${timelineH}px`,
+        gridTemplateColumns: layout.inspectorOpen ? `minmax(0, 1fr) 6px ${layout.inspector}px` : 'minmax(0, 1fr)'
+      }}
+    >
       {/* Each big panel in its own error boundary: one that fails shows a
           small "Reload panel" box in its place, the rest keeps working (and
           the autosave, recovery and quit dialog with it). */}
@@ -1546,7 +1558,7 @@ export function App(): JSX.Element {
       </ErrorBoundary>
       <div
         className="main"
-        style={{ gridTemplateColumns: `${dockOpen ? layout.bin : DOCK_CATS_PX}px 6px 1fr 6px ${layout.inspector}px` }}
+        style={{ gridTemplateColumns: `${dockOpen ? layout.bin : DOCK_CATS_PX}px 6px 1fr` }}
       >
         <ErrorBoundary name="media and tools"><WorkspaceDock onImport={handleImport} onTranscribe={handleTranscribe} onTranscribeRange={handleTranscribeRange} /></ErrorBoundary>
         {/* (Closed, the left panel is its category column alone: nothing to size.) */}
@@ -1558,9 +1570,15 @@ export function App(): JSX.Element {
           <ErrorBoundary name="Shorts"><ShortsPanel onExportSegments={handleExportShorts} /></ErrorBoundary>
           <ModeHelp />
         </div>
-        <Splitter dir="v" testid="splitter.inspector" onDrag={(d) => patchLayout({ inspector: layout.inspector - d })} />
-        <ErrorBoundary name="inspector"><Inspector onTranscribe={handleTranscribe} /></ErrorBoundary>
       </div>
+      {/* The inspector is the window's full-height right column: it reaches
+          the bottom, and the timeline (below) starts at its left edge. It is
+          folded away from its own tab strip; this button brings it back. */}
+      {layout.inspectorOpen && <Splitter dir="v" testid="splitter.inspector" onDrag={(d) => patchLayout({ inspector: layout.inspector - d })} />}
+      <ErrorBoundary name="inspector"><Inspector onTranscribe={handleTranscribe} onCollapse={() => patchLayout({ inspectorOpen: false })} /></ErrorBoundary>
+      {!layout.inspectorOpen && (
+        <IconButton className="inspector-reopen" icon="chevron-left" variant="secondary" label={t('insp.show')} onClick={() => patchLayout({ inspectorOpen: true })} testid="inspector.reopen" />
+      )}
       <Splitter
         dir="h"
         testid="splitter.timeline"

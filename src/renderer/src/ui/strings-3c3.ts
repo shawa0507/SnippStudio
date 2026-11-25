@@ -29,6 +29,8 @@ export const STRINGS_3C3 = {
   'insp.tab.notes.hint': { en: 'Work notes: mark a range or a frame, say what you want, send them to your agent (Notes lane)', tr: 'İş notları: bir aralığı ya da kareyi işaretle, ne istediğini yaz, ajanına gönder (Notlar şeridi)' },
   'insp.tab.project': { en: 'Project', tr: 'Proje' },
   'insp.tab.project.hint': { en: 'Sound (ducking), Script (transcript) and the project’s settings', tr: 'Ses (kısma), Metin (konuşma metni) ve projenin ayarları' },
+  'insp.collapse': { en: 'Hide the panel', tr: 'Paneli gizle' },
+  'insp.show': { en: 'Show the panel', tr: 'Paneli göster' },
 
   // ---- words many panels share ---------------------------------------------------
   'insp.enabled': { en: 'Enabled', tr: 'Açık' },

@@ -194,7 +194,7 @@ function registerIpc() {
     return agentHost?.setEnabled(on === true) ?? null
   })
   ipcMain.on('agent:result', (event, id: unknown, result: unknown) => agentHost?.answer(event.sender.id, id, result))
-  agentSession = registerAgentSessionIpc({ host: () => agentHost })
+  agentSession = registerAgentSessionIpc({ host: () => agentHost, projectPathOf: (contentsId) => editorWindows.get(contentsId)?.currentProjectPath ?? null })
   // The point before the agent (phase 4A): in the profile, the last five.
   ipcMain.handle('agent:restore-write', (_e, json: unknown, label: unknown) => writeRestorePoint(app.getPath('userData'), json, label))
   ipcMain.handle('agent:restore-read', (_e, name: unknown) => readRestorePoint(app.getPath('userData'), name))
@@ -227,6 +227,9 @@ function registerIpc() {
         }
       }
     }
+    // (app.exit does not fire will-quit, where the chat's agent process and
+    // the version queries would end: end them here.)
+    agentSession?.stop()
     app.relaunch({ args: restartArgs(process.argv, editorState(event.sender).currentProjectPath) })
     app.exit(0)
     return { ok: true }

@@ -10,6 +10,9 @@ export interface PanelLayout {
   /** The timeline's height as a share of the window's (phase 3c.Y, K1): it
    *  keeps its proportion when the window grows or shrinks. */
   timelineRatio: number
+  /** The Inspector is shown (the default) or folded away, its width given
+   *  to the preview and the timeline. */
+  inspectorOpen: boolean
 }
 
 export const LAYOUT_KEY = 'autocut-panel-layout'
@@ -74,5 +77,5 @@ export function readLayout(saved: unknown, winH: number): PanelLayout {
   let timelineRatio = TIMELINE_DEFAULT_RATIO
   if (typeof s.timelineRatio === 'number') timelineRatio = clampRatio(s.timelineRatio)
   else if (typeof s.timeline === 'number' && Number.isFinite(s.timeline) && s.timeline !== OLD_TIMELINE_DEFAULT_PX && winH > 0) timelineRatio = clampRatio(s.timeline / winH)
-  return { bin, inspector, timelineRatio }
+  return { bin, inspector, timelineRatio, inspectorOpen: s.inspectorOpen !== false }
 }

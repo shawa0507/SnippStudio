@@ -137,9 +137,13 @@ test('no embedded terminal: no node-pty or xterm in the package, the sources or 
   const lock = JSON.parse(readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8')) as { packages: Record<string, { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }> }
   for (const key of Object.keys(lock.packages)) assert.equal(/node_modules\/(node-pty|@xterm\/)/.test(key), false, `the lock still has ${key}`)
   assert.equal(/node-pty|conpty/i.test(readFileSync(path.join(ROOT, 'electron-builder.config.cjs'), 'utf8')), false, 'electron-builder.config.cjs')
+  // The in-app chat (AGENT-CHAT-PLAN.md) is the one user of the CLI's own
+  // --mcp-config: it starts Claude Code for the Chat tab, not a terminal.
+  const chatCli = path.join(SRC, 'main', 'agent-chat.ts')
   for (const f of walk(SRC).filter((x) => /\.(ts|tsx|css)$/.test(x) && !x.includes(`${path.sep}test${path.sep}`))) {
     const s = readFileSync(f, 'utf8')
-    assert.equal(/node-pty|@xterm|\bIPty\b|useConptyDll|agentTerm:|--mcp-config|openSystemTerminal|TerminalView/.test(s), false, path.relative(SRC, f))
+    assert.equal(/node-pty|@xterm|\bIPty\b|useConptyDll|agentTerm:|openSystemTerminal|TerminalView/.test(s), false, path.relative(SRC, f))
+    if (f !== chatCli) assert.equal(s.includes('--mcp-config'), false, path.relative(SRC, f))
   }
   const preload = readFileSync(path.join(SRC, 'preload', 'index.ts'), 'utf8')
   const bridge = preload.slice(preload.indexOf('  agentSession: {'), preload.indexOf('\n  },', preload.indexOf('  agentSession: {')))

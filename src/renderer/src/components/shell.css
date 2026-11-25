@@ -94,9 +94,30 @@
 /* v3 (tarifler/UI-YENI.md): the four regions are cards on the ground, a
    --gap-card apart and as far from the window's edges; the splitters are the
    gaps between them. The top bar stands on the ground itself. */
-.app { display: grid; grid-template-rows: 48px 1fr 6px 300px; height: 100%; padding: 0 var(--gap-card) var(--gap-card); }
-/* Library, splitter, preview, splitter, Inspector. */
-.main { display: grid; grid-template-columns: 220px 6px 1fr 6px 320px; min-height: 0; }
+.app {
+  display: grid;
+  grid-template-rows: 48px 1fr 6px 300px;
+  /* The work area, the inspector's splitter, the full-height inspector. */
+  grid-template-columns: minmax(0, 1fr) 6px 320px;
+  height: 100%;
+  padding: 0 var(--gap-card) var(--gap-card);
+}
+.app > .topbar { grid-column: 1 / -1; grid-row: 1; }
+/* Library, splitter, preview. */
+.main { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: 220px 6px 1fr; min-height: 0; }
+/* The inspector's splitter and the inspector run from below the top bar to
+   the window's bottom; the timeline keeps the left columns. */
+.app > .splitter.v { grid-column: 2; grid-row: 2 / 5; }
+.app > .inspector { grid-column: 3; grid-row: 2 / 5; }
+.app > .splitter.h { grid-column: 1; grid-row: 3; }
+.app > .timeline { grid-column: 1; grid-row: 4; }
+/* Folded away: the preview and the timeline take the whole width; the panel
+   keeps its state for when it comes back. */
+.app.is-inspector-closed > .inspector { display: none; }
+.inspector-reopen {
+  position: fixed; right: var(--gap-card); top: 50%; transform: translateY(-50%);
+  z-index: var(--z-sticky); border-radius: var(--r-pill);
+}
 /* (The preview and the timeline keep their overflow: their menus open over
    the card's edge; what is drawn in them is rounded by their own parts.) */
 .workspace-dock, .main > .preview, .inspector, .app > .timeline { border-radius: var(--r-card); }

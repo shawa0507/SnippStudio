@@ -7,6 +7,7 @@
 /* The editor under the layer: kept as it is, out of sight and out of reach. */
 .app.is-watch > .main,
 .app.is-watch > .splitter,
+.app.is-watch > .inspector,
 .app.is-watch > .timeline { visibility: hidden; }
 /* The top bar keeps one primary button on the screen (IZLE-PLAN.md, K7). */
 .app.is-watch .topbar .tb-export,

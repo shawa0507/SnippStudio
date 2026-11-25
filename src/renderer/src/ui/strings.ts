@@ -66,6 +66,7 @@ import { STRINGS_KOLAY } from './strings-kolay'
 import { STRINGS_CILA3 } from './strings-cila3'
 import { STRINGS_EKIP } from './strings-ekip'
 import { STRINGS_EKIP3 } from './strings-ekip3'
+import { STRINGS_CHAT } from './strings-chat'
 
 export type Lang = 'en' | 'tr'
 export const LANGS: readonly Lang[] = ['en', 'tr']
@@ -252,6 +253,7 @@ export const STRINGS = {
   ...STRINGS_CILA3,
   ...STRINGS_EKIP,
   ...STRINGS_EKIP3,
+  ...STRINGS_CHAT,
 
   // ---- the agent (phase 4A: toasts and the words 4B's Agent tab shows) -----
   'agent.edited': { en: 'Agent: {what}. Ctrl+Z undoes it.', tr: 'Ajan: {what}. Ctrl+Z geri alır.' },

@@ -480,7 +480,10 @@ export function tokenSetupLine(settingsFile: string, platform: string = process.
 
 type ExecutableSpec = { file: string; args: string[] | string; env: Record<string, string> }
 
-function executableSpec(file: string, args: string[], env: Record<string, string>, platform: string, comspec: string): ExecutableSpec {
+/** The program to start for an agent's own file, and its arguments: on
+ *  Windows a .cmd/.bat shim runs through cmd.exe, every argument passed by
+ *  name so no value is parsed twice (the in-app chat uses this too). */
+export function executableSpec(file: string, args: string[], env: Record<string, string>, platform: string, comspec: string): ExecutableSpec {
   if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(file)) return { file, args, env }
   // The npm shim needs cmd. Its arguments are paths or generated arguments,
   // never user commands. Quoted expansion avoids reinterpreting % in a path.

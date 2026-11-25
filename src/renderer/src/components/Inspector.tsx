@@ -12,10 +12,11 @@ import { PROJECT_PART_KEY, PART_OF, ProjectTabs } from './inspector/project-tab'
 import type { ProjectPart } from './inspector/project-tab'
 export { FxTab } from './inspector/fx-tab'
 import { AgentTab } from './agent/AgentTab'
+import { ChatTab } from './agent/ChatTab'
 import { CommandBox } from './agent/CommandBox'
 import { useAgentOn, useAgentTabShown } from './agent/useAgentShown'
 import { useAgentStore } from '../agent/store'
-import { Tabs, useT, type TabItem } from '../ui'
+import { IconButton, Tabs, useT, type TabItem } from '../ui'
 import { SectionScope } from '../ui/Section'
 import { isSendable } from '../notes/model'
 import { useTransitionUi } from './timeline/transition-state'
@@ -25,12 +26,12 @@ import { motionOff } from '../ui/motion'
 import { assetById } from '../types'
 import { clipScopeKind, scopeOf, type ScopeKind } from './inspector/scopes'
 
-type Tab = 'clip' | 'subs' | 'fx' | 'project' | 'tmpl' | 'notes' | 'agent'
+type Tab = 'clip' | 'subs' | 'fx' | 'project' | 'tmpl' | 'notes' | 'chat' | 'agent'
 /** The tabs drawn as cards (arayüz v4). */
 const CARD_TABS: ReadonlySet<Tab> = new Set<Tab>(['clip', 'subs', 'fx', 'project', 'tmpl'])
 
 
-export function Inspector({ onTranscribe }: { onTranscribe: () => void }): JSX.Element {
+export function Inspector({ onTranscribe, onCollapse }: { onTranscribe: () => void; onCollapse?: () => void }): JSX.Element {
   const t = useT()
   const [tab, setTab] = useState<Tab>('clip')
   const [part, setPartState] = useState<ProjectPart>(() => {
@@ -119,6 +120,8 @@ export function Inspector({ onTranscribe }: { onTranscribe: () => void }): JSX.E
   // access off their tab is not shown (the notes are kept).
   const agentOn = useAgentOn()
   if (tab === 'notes' && !agentOn) setTab('clip')
+  // (The in-app chat is agent access's own tab too: off, it is not shown.)
+  if (tab === 'chat' && !agentOn) setTab('clip')
   // The top bar's "Draft waits · Review" opens the Agent tab (DENEME-2).
   const wantAgent = useAgentStore((s) => s.openTab)
   // A call of the agent in flight: a thin line runs under its tab (DENEME-2, item 4).
@@ -205,6 +208,8 @@ export function Inspector({ onTranscribe }: { onTranscribe: () => void }): JSX.E
     // tab, the same place: YAZI2-PLAN.md, addendum 7.)
     { value: 'subs', label: t('insp.tab.subs'), hint: t('insp.tab.subs.hint'), ...(titlePicked ? { label: t('yz.tab.text') } : {}) },
     ...(hasTemplates ? [{ value: 'tmpl' as Tab, label: t('insp.tab.tmpl'), hint: t('insp.tab.tmpl.hint') }] : []),
+    // The in-app chat (AGENT-CHAT-PLAN.md): the agent, talked to here.
+    ...(agentOn ? [{ value: 'chat' as Tab, label: t('chat.tab'), hint: t('chat.tab.hint') }] : []),
     // Work notes (SnippStudio phase 1).
     ...(agentOn ? [{ value: 'notes' as Tab, label: t('insp.tab.notes'), hint: t('insp.tab.notes.hint'), badge: hasNotes ? <NotesTabBadge /> : undefined }] : []),
     // The agent's own tab (phase 4B, amber): connection, draft, steps.
@@ -216,16 +221,20 @@ export function Inspector({ onTranscribe }: { onTranscribe: () => void }): JSX.E
     <div className="inspector" role="complementary" aria-label={t('insp.name')}>
       <div className={agentBusy ? 'insp-tabs is-agent-busy' : 'insp-tabs'}>
         <Tabs value={tab} tabs={tabs} onChange={setTab} label={t('insp.name')} testid="inspector.tab" />
+        <IconButton className="insp-collapse" icon="chevron-right" size="sm" variant="ghost" label={t('insp.collapse')} onClick={onCollapse} testid="inspector.collapse" />
       </div>
       {/* Arayüz v4: the Clip, Look, Subtitles and Project tabs are cards on
           the ground (ui-cards); the others are one panel as before. */}
-      <div className={CARD_TABS.has(tab) ? 'body ui-cards ui-sliders-stacked' : 'body ui-sliders-stacked'} ref={bodyRef} role="tabpanel" aria-label={tabs.find((x) => x.value === tab)?.label} onScroll={(e) => (scrolls.current[tab] = e.currentTarget.scrollTop)}>
+      {/* The chat keeps its composer fixed: its own transcript is the only
+          part that scrolls (the body is not a scroll box there). */}
+      <div className={`body ui-sliders-stacked${CARD_TABS.has(tab) ? ' ui-cards' : ''}${tab === 'chat' ? ' is-chat' : ''}`} ref={bodyRef} role="tabpanel" aria-label={tabs.find((x) => x.value === tab)?.label} onScroll={(e) => (scrolls.current[tab] = e.currentTarget.scrollTop)}>
         {tab === 'clip' && <SectionScope {...scopeOf(clipKind)}><ClipTab /></SectionScope>}
         {tab === 'subs' && <SectionScope {...scopeOf(titlePicked ? 'text' : linePicked ? 'line' : 'subs')}><SubsTab /></SectionScope>}
         {tab === 'fx' && <SectionScope {...scopeOf('look')}><FxTab view="look" /></SectionScope>}
         {tab === 'project' && <ProjectTabs part={part} onPart={setPart} />}
         {tab === 'tmpl' && <TemplateInspector />}
         {tab === 'notes' && <NotesPanel />}
+        {tab === 'chat' && <ChatTab />}
         {tab === 'agent' && <AgentTab />}
       </div>
       {/* The command box: always there (phase 4B.2). */}

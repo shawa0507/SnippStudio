@@ -13,7 +13,7 @@ SnippStudio, zaten kullandığın bir yapay zekâ kodlama ajanının projeni oku
 | OpenCode | SnippStudio kopyalaman için bağlantı ayarlarını verir; onu OpenCode'un ayarına sen eklersin | deneysel · doğrulanmadı |
 | Antigravity (`agy`) | SnippStudio, Antigravity'nin MCP ayar dosyasına girecek satırı yazdıran bir komut kopyalar; satırı oraya sen eklersin | deneysel · doğrulanmadı (gerçek bir Antigravity ile hiç denenmedi) |
 
-Ajan bu bilgisayarda kurulu ve giriş yapılmış olmalı (komut satırı kullanımını içeren bir planla). **Ayarlar → Ajan bağlantısı** hangilerini bulduğunu, sürümlerini ve eksik olan için kopyalanacak kurulum komutunu ve resmî bağlantıyı gösterir. SnippStudio ajanı hiçbir zaman kendisi başlatmaz; ajanının anahtarlarını ya da belirteçlerini okumaz, saklamaz, yazmaz: giriş, ajanın kendi akışıdır. Ajana iş, ajanın kendi sohbetinden ya da SnippStudio'dan gönderilerek verilir (aşağıda **Programdan ajana gönder**).
+Ajan bu bilgisayarda kurulu ve giriş yapılmış olmalı (komut satırı kullanımını içeren bir planla). **Ayarlar → Ajan bağlantısı** hangilerini bulduğunu, sürümlerini ve eksik olan için kopyalanacak kurulum komutunu ve resmî bağlantıyı gösterir. SnippStudio ajanı kendi başına başlatmaz; **Sohbet** sekmesi, kurulu Claude Code'u yalnız bir ileti gönderdiğinde başlatır. Ajanının anahtarlarını ya da belirteçlerini okumaz, saklamaz, yazmaz: giriş, ajanın kendi akışıdır. Ajana iş, ajanın kendi sohbetinden ya da SnippStudio'dan gönderilerek verilir (aşağıda **Programdan ajana gönder**).
 
 ## Bağlanma
 
@@ -33,6 +33,20 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 - Yalnız bu bilgisayarda (`127.0.0.1`) HTTP üzerinden bir MCP sunucusu; ajan belirteci SnippStudio'nun ayar dosyasından alır. Web sayfalarından gelen istekler reddedilir.
 - Her oturum bir pencereye ve onun projesine aittir.
 - Anahtarı gizli tut: erişim açıkken onu bilen her şey projelerini düzenleyebilir.
+
+## SnippStudio içinde sohbet
+
+**Sohbet** sekmesi (ajan erişimi açıkken sağ panelde) bu bilgisayardaki Claude Code komut satırıyla editörden çıkmadan konuşur. İlk ileti onu açık projenin klasöründe başlatır; yazdıkları ve her araç çağrısı orada, turun süresi ve maliyetiyle görünür. Sonraki ileti aynı sohbetin bağlamını korur; **Yeni sohbet** bağlamsız baştan başlatır, **Durdur** turu ve programı bitirir.
+
+- Zaten kurulu ve giriş yapılmış Claude Code'u kullanır (bağlantı sayfasının bulduğu gibi). Ayarlar'dan bağlanan dışarıdan bir ajan aynı şekilde çalışmaya devam eder.
+- Yapabildikleri: uygulamanın kendi araçları (proje, transkript, kareler, çözümleme, düzenleme, notlar, iş, kod klipleri, medya; her çağrı her ajanınki gibi editöre gelir) ve proje klasöründe dosya düzenlemeleri. **Kabuk** ileti kutusunun altındaki anahtar açılana kadar kapalıdır; açıkken ajan bu bilgisayarda soru sormadan her komutu çalıştırabilir, bu yüzden yalnız ona ne yaptıracağına güveniyorsan aç.
+- **Model**, CLI ortamının tuttuğu model kimliklerinden seçilir (Varsayılan, CLI'nin kendi seçimidir). Açık bir sohbette model değişikliği konuşmanın bağlamını korur. **Kip**, CLI'nin izin kipidir: Düzenlemeleri kabul et (varsayılan), Otomatik (CLI'nin sınıflandırıcısı karar verir) ya da Plan.
+- **Sıkıştır**, CLI'nin kendi `/compact` komutunu gönderir; yazmak da aynıdır. Döküm, özetin ardından sürer. `/` yazınca CLI'nin sunduğu komutlar listelenir. İleti kutusunun altındaki **Bağlam**, son turun boyutunu modelin penceresine göre gösterir; %70’e yaklaşınca sararır, %90’a yaklaşınca kızarır ve tepeye yakın **Yakında sıkıştır** der.
+- Görseller: **+** düğmesi ya da yapıştırma en çok dört görsel ekler (PNG, JPEG, WebP, GIF; her biri 8 MB), küçük resim olarak görünür ve × ile kaldırılır.
+- Uygulamanın `wait` aracı sohbette sunulmaz: kendi sohbeti başka yerde olan ajan içindir. Tur bitince ajan yanıtlar.
+- Sekme şeridindeki **paneli gizle** düğmesi Inspector'ı katlar (hatırlanır): önizleme ve zaman çizelgesi tüm genişliği alır; pencere kenarındaki ok geri getirir.
+- İlk sürümde yalnız **Claude Code** komut satırı barındırılır. Codex ve OpenCode dış ajan olarak kalır; kendi adaptörleri aynı sekmenin arkasına gelebilir.
+- Sohbet süreci uygulamanın çocuğudur: pencereyi kapatmak, ajan erişimini kapatmak ya da çıkmak onu ve başlattığı her şeyi bitirir. Anahtarı sürece ortamıyla gider; sayfaya ya da komut satırına asla.
 
 ## Ajan ne yapabilir: araçlar
 

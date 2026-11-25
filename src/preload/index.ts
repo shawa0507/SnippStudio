@@ -2,6 +2,7 @@
 // Copyright (C) 2026 SnippStudio contributors
 import { contextBridge, ipcRenderer, sharedTexture, webUtils } from 'electron'
 import type { Slot as CodeValueSlot } from '../shared/codeval/types'
+import type { ChatEvent, ChatImage, ChatMode, ChatModels, ChatStatus } from '../shared/agent-chat'
 
 export interface ImportedFile {
   path: string
@@ -666,6 +667,36 @@ const api = {
       ipcRenderer.on('agentLink:changed', listener)
       return () => {
         ipcRenderer.removeListener('agentLink:changed', listener)
+      }
+    }
+  },
+  /** The in-app chat (AGENT-CHAT-PLAN.md): the installed Claude Code CLI in
+   *  the project's folder, one process per window, started on the first
+   *  message. Events are text, tool cards and the turn's result; the key
+   *  never comes here. */
+  agentChat: {
+    start: (): Promise<ChatStatus> => ipcRenderer.invoke('agentChat:start'),
+    status: (): Promise<ChatStatus> => ipcRenderer.invoke('agentChat:status'),
+    /** The model ids the CLI's environment holds, and the one it uses now. */
+    models: (): Promise<ChatModels> => ipcRenderer.invoke('agentChat:models'),
+    /** Empty: the CLI's own setting for the next chat; a running chat is
+     *  switched in place (`/model`, context kept). */
+    setModel: (model: string): Promise<{ ok: boolean; applied: boolean }> => ipcRenderer.invoke('agentChat:setModel', model),
+    /** The system's image picker; the picture comes back as base64. */
+    pickImage: (): Promise<ChatImage | null> => ipcRenderer.invoke('agentChat:pickImage'),
+    /** Shell commands on or off: ends the chat (a process's tools are fixed
+     *  at start); the next message starts with the new setting. */
+    setShell: (on: boolean): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:setShell', on === true),
+    /** The permission mode: ends the chat; the next message starts with it. */
+    setMode: (mode: ChatMode): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:setMode', mode),
+    send: (text: string, model?: string, images?: ChatImage[], shell?: boolean, mode?: ChatMode): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('agentChat:send', text, model ?? '', images ?? [], shell === true, mode ?? 'acceptEdits'),
+    stop: (): Promise<void> => ipcRenderer.invoke('agentChat:stop'),
+    onEvent: (cb: (event: ChatEvent) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { event: ChatEvent }): void => cb(payload.event)
+      ipcRenderer.on('agentChat:event', listener)
+      return () => {
+        ipcRenderer.removeListener('agentChat:event', listener)
       }
     }
   },

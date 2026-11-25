@@ -13,7 +13,7 @@ SnippStudio can let an AI coding agent you already use read your project and edi
 | OpenCode | SnippStudio gives you the connection settings to copy; you add them to OpenCode's settings | experimental · unverified |
 | Antigravity (`agy`) | SnippStudio copies a command that prints the entry for Antigravity's MCP settings file; you add it there | experimental · unverified (never tried with a real Antigravity) |
 
-The agent must be installed and signed in on this computer (with a plan that includes command-line use). **Settings → Agent connection** shows which ones it found, their versions, and for a missing one the install command and the official link to copy. SnippStudio never starts an agent itself, and never reads, keeps or types your agent's keys or tokens: signing in is the agent's own flow. You give the agent its work in the agent's own chat, or send it from SnippStudio (see **Sending from the app to the agent** below).
+The agent must be installed and signed in on this computer (with a plan that includes command-line use). **Settings → Agent connection** shows which ones it found, their versions, and for a missing one the install command and the official link to copy. SnippStudio starts no agent on its own; the **Chat** tab starts your installed Claude Code only when you send it a message. It never reads, keeps or types your agent's keys or tokens: signing in is the agent's own flow. You give the agent its work in the agent's own chat, or send it from SnippStudio (see **Sending from the app to the agent** below).
 
 ## Connecting
 
@@ -33,6 +33,20 @@ Turning **Agent access** off closes the server: nothing listens.
 - An MCP server over HTTP on this computer only (`127.0.0.1`), with a token the agent reads from SnippStudio's settings file. Requests from web pages are refused.
 - Each session belongs to one window and its project.
 - Keep the key private: while access is on, anything that knows it can edit your projects.
+
+## Chat inside SnippStudio
+
+The **Chat** tab (right panel, while agent access is on) talks to the Claude Code CLI on this computer without leaving the editor. The first message starts it in the open project's folder; its words and every tool call appear there, with the turn's time and cost. The next message keeps the same chat's context; **New chat** starts again with none, and **Stop** ends the turn and the program.
+
+- It uses the Claude Code you already installed and signed in (found the same way the connection page finds it). An agent from outside, connected through Settings, still works exactly as before.
+- What it may do: the app's own tools (project, transcript, frames, analyze, edit, notes, job, code clips, media; every call arrives in the editor as any agent's does) and file edits in the project's folder. **Shell** is off until you turn it on under the message box; on, the agent may run any command on this computer without asking, so turn it on only when you trust what you will ask.
+- **Model** picks from the model ids your CLI environment holds (Default is the CLI's own choice). A switch in an open chat keeps the conversation's context. **Mode** is the CLI's permission mode: Accept edits (the default), Auto (the CLI's classifier decides) or Plan.
+- **Compact** sends the CLI's own `/compact`; so does typing it. The transcript continues with the summary. Typing `/` lists the commands the CLI offers. Under the message box, **Context** shows the last turn's size against the model's window; it turns amber near 70 %, red near 90 %, and says **Compact soon** near the top.
+- Pictures: the **+** button or a paste attaches up to four images (PNG, JPEG, WebP, GIF; 8 MB each), shown as thumbnails with an × to remove one.
+- The app's `wait` tool is not offered in the chat: it is for an agent whose own chat is elsewhere. When the turn is done, the agent replies.
+- The **hide-panel** button in the tab strip folds the Inspector away (remembered): the preview and the timeline take the full width; the chevron at the window's right edge brings it back.
+- Only the **Claude Code** CLI is hosted in this version. Codex and OpenCode stay external agents; their adapters can come behind the same tab.
+- The chat process is the app's child: closing the window, turning agent access off, or quitting ends it and everything it started. Its key goes to the process in its environment, never on a page or a command line.
 
 ## What the agent can do: the tools
 

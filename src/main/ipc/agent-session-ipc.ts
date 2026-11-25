@@ -6,17 +6,22 @@
 // outside), and the Settings window's "Agent connection" page: the lines the
 // user runs to add this copy to Claude Code or Codex once, the read-only
 // checks of those registrations, OpenCode's and Antigravity's parts, and a
-// new key. The app never starts an agent and never writes an agent's
-// settings; the key never leaves the main process.
-import { app } from 'electron'
+// new key. The in-app Chat tab (AGENT-CHAT-PLAN.md) is the one place the app
+// starts an agent itself: the installed Claude Code CLI, per project, while
+// the user chats in that window. Otherwise the app starts no agent and writes
+// no agent's settings; the key never leaves the main process.
+import { app, dialog, webContents, BrowserWindow } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { execFile } from 'node:child_process'
 import { systemTool, systemToolCwd } from '../system-tool'
 import type { AgentHost, AgentStatus } from '../agent-host'
 import { AGENT_IDS, agentEnv, agentQuery, agentVersion, antigravityPrintLine, claudeAddLine, codexAddLine, codexEnvLine, codexEnvVerdict, codexPersistLine, codexLaunchLine, codexRegisterLine, codexRegistrationState, codexTokenEnv, fileExists, findAgents, openCodeConfig, openCodeRegisterLine, openCodeTokenEnv, registrationState, startLine, stopVersionQueries, tokenEnvQueryArgs, tokenSetupLine, type AgentFound, type AgentId, type CodexEnvVerdict, type Registration } from '../agent-connect'
-import { CHANNEL } from '../channel'
+import { CHANNEL, agentNameFor } from '../channel'
+import { filterName } from '../strings-main'
 import { registeredServerName } from '../../shared/product'
+import { ClaudeChat, chatModels } from '../agent-chat'
+import { CHAT_MODES, type ChatEvent, type ChatImage, type ChatMode, type ChatStatus } from '../../shared/agent-chat'
 import { e2eMode } from '../e2e-hooks'
 import { ipcMain } from '../state'
 
@@ -106,7 +111,11 @@ function repairShell(platform: string, line: string): { file: string; args: stri
     : { file: '/bin/sh', args: ['-lc', line] }
 }
 
-export function registerAgentSessionIpc(deps: { host: () => AgentHost | null }): { stop: () => void; windowGone: (contentsId: number) => void; repairDetected: () => Promise<AgentId[]> } {
+export function registerAgentSessionIpc(deps: {
+  host: () => AgentHost | null
+  /** The project an editor window has open now (the chat's folder). */
+  projectPathOf: (contentsId: number) => string | null
+}): { stop: () => void; windowGone: (contentsId: number) => void; repairDetected: () => Promise<AgentId[]> } {
   const status = async (): Promise<SessionStatus> => {
     const host = deps.host()
     const server = host ? await host.status() : null
@@ -118,6 +127,151 @@ export function registerAgentSessionIpc(deps: { host: () => AgentHost | null }):
     }
   }
   const name = (): string => registeredServerName(CHANNEL)
+
+  // ---- the in-app chat (AGENT-CHAT-PLAN.md) -------------------------------
+  // One Claude Code process per editor window, started on the first message,
+  // in the project's folder. Its MCP config names this copy's server; a turn
+  // streams back as agentChat:event. A project change starts a new process.
+  const chats = new Map<number, { chat: ClaudeChat; project: string; model: string; shell: boolean; mode: ChatMode }>()
+  const cleanMode = (raw: unknown): ChatMode => (typeof raw === 'string' && (CHAT_MODES as readonly string[]).includes(raw) ? (raw as ChatMode) : 'acceptEdits')
+  /** One message's pictures: images only, four at most, base64 (the CLI's
+   *  image block); anything else is dropped. */
+  const cleanImages = (raw: unknown): ChatImage[] => {
+    if (!Array.isArray(raw)) return []
+    const types = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+    const out: ChatImage[] = []
+    for (const item of raw.slice(0, 4)) {
+      if (!item || typeof item !== 'object') continue
+      const m = item as { name?: unknown; mediaType?: unknown; data?: unknown }
+      if (typeof m.mediaType !== 'string' || !types.includes(m.mediaType)) continue
+      if (typeof m.data !== 'string' || !m.data || m.data.length > 12_000_000 || !/^[A-Za-z0-9+/=\r\n]+$/.test(m.data)) continue
+      out.push({ name: typeof m.name === 'string' ? m.name.slice(0, 120) : 'image', mediaType: m.mediaType, data: m.data })
+    }
+    return out
+  }
+  const cleanModel = (raw: unknown): string | null => (typeof raw === 'string' && /^[A-Za-z0-9._:/[\]-]{1,120}$/.test(raw) ? raw : null)
+  const chatEvent = (contentsId: number, event: ChatEvent): void => {
+    const page = webContents.fromId(contentsId)
+    if (page && !page.isDestroyed()) page.send('agentChat:event', { event })
+  }
+  const chatStatus = (contentsId: number): ChatStatus => {
+    const entry = chats.get(contentsId)
+    const installed = !!found('claude')
+    return { ok: !!entry && entry.chat.alive(), phase: entry?.chat.phase ?? 'off', harness: installed ? 'claude' : null, installed, projectPath: entry?.project }
+  }
+  /** Starts the window's chat process for the project it has open now, or
+   *  answers why it cannot. Nothing is started while agent access is off. */
+  const ensureChat = async (contentsId: number, model = '', shell = false, mode: ChatMode = 'acceptEdits'): Promise<ChatStatus> => {
+    const project = deps.projectPathOf(contentsId)
+    const installed = !!found('claude')
+    if (!project) return { ok: false, phase: 'off', harness: installed ? 'claude' : null, installed, error: 'no-project' }
+    let existing = chats.get(contentsId)
+    // (Shell commands and the permission mode are fixed for a process: a
+    // change ends it, and the next message starts a new chat.)
+    if (existing && (existing.project !== project || existing.shell !== shell || existing.mode !== mode)) {
+      existing.chat.stop()
+      chats.delete(contentsId)
+      existing = undefined
+    }
+    if (existing && existing.chat.alive()) {
+      // (Another model picked while the chat is open: the CLI changes it in
+      // the same session, context kept; an empty choice is for the next chat.)
+      if (model && model !== existing.model) {
+        existing.model = model
+        await existing.chat.send(`/model ${model}`)
+      }
+      return chatStatus(contentsId)
+    }
+    if (existing) {
+      existing.chat.stop()
+      chats.delete(contentsId)
+    }
+    const claude = found('claude')
+    if (!claude) return { ok: false, phase: 'off', harness: null, installed: false, error: 'claude-missing' }
+    const k = await deps.host()?.key()
+    if (!k?.running) return { ok: false, phase: 'off', harness: 'claude', installed: true, error: 'server-off' }
+    const chat = new ClaudeChat({
+      program: claude,
+      cwd: path.dirname(project),
+      url: k.url,
+      token: k.token,
+      serverName: agentNameFor(CHANNEL),
+      model: model || undefined,
+      shell,
+      mode,
+      send: (event) => chatEvent(contentsId, event)
+    })
+    chats.set(contentsId, { chat, project, model, shell, mode })
+    await chat.start()
+    return { ...chatStatus(contentsId), projectPath: project }
+  }
+  ipcMain.handle('agentChat:start', async (event) => ensureChat(event.sender.id))
+  ipcMain.handle('agentChat:status', (event) => chatStatus(event.sender.id))
+  ipcMain.handle('agentChat:models', () => chatModels(process.env))
+  /** The model for the next message: a running chat is switched in place
+   *  (`/model`, context kept); one not started uses it at start. */
+  ipcMain.handle('agentChat:setModel', async (event, model: unknown): Promise<{ ok: boolean; applied: boolean }> => {
+    const clean = model === '' ? '' : cleanModel(model)
+    if (clean === null) return { ok: false, applied: false }
+    const entry = chats.get(event.sender.id)
+    if (entry && clean && entry.chat.alive() && entry.model !== clean) {
+      entry.model = clean
+      await entry.chat.send(`/model ${clean}`)
+      return { ok: true, applied: true }
+    }
+    if (entry && !clean) entry.model = ''
+    return { ok: true, applied: false }
+  })
+  /** One picture for the message being written: the system's own picker,
+   *  read here (the page never gets a path). */
+  ipcMain.handle('agentChat:pickImage', async (event): Promise<ChatImage | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const imageFilter = { name: filterName('image'), extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
+    const picked = win
+      ? await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [imageFilter] })
+      : await dialog.showOpenDialog({ properties: ['openFile'], filters: [imageFilter] })
+    if (picked.canceled || !picked.filePaths[0]) return null
+    const file = picked.filePaths[0]
+    const media = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' }[path.extname(file).toLowerCase()]
+    if (!media) return null
+    try {
+      if (fs.statSync(file).size > 8 * 1024 * 1024) return null
+      return { name: path.basename(file), mediaType: media, data: fs.readFileSync(file).toString('base64') }
+    } catch {
+      return null
+    }
+  })
+  ipcMain.handle('agentChat:setShell', (event) => {
+    const entry = chats.get(event.sender.id)
+    entry?.chat.stop()
+    chats.delete(event.sender.id)
+    return { ok: true }
+  })
+  ipcMain.handle('agentChat:setMode', (event) => {
+    const entry = chats.get(event.sender.id)
+    entry?.chat.stop()
+    chats.delete(event.sender.id)
+    return { ok: true }
+  })
+  ipcMain.handle('agentChat:send', async (event, text: unknown, model: unknown, images: unknown, shell: unknown, mode: unknown): Promise<{ ok: boolean; error?: string }> => {
+    const pictures = cleanImages(images)
+    if (typeof text !== 'string' || text.length > 20_000 || (!text.trim() && !pictures.length)) return { ok: false, error: 'bad-text' }
+    const started = await ensureChat(event.sender.id, cleanModel(model) ?? '', shell === true, cleanMode(mode))
+    if (!started.ok) return { ok: false, error: started.error ?? 'not-started' }
+    const entry = chats.get(event.sender.id)
+    if (!entry) return { ok: false, error: 'not-started' }
+    try {
+      await entry.chat.send(typeof text === 'string' ? text.trim() : '', pictures)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'send-failed' }
+    }
+  })
+  ipcMain.handle('agentChat:stop', (event) => {
+    const entry = chats.get(event.sender.id)
+    entry?.chat.stop()
+    chats.delete(event.sender.id)
+  })
 
   ipcMain.handle('agent:connect', async (_event, on: unknown) => {
     await deps.host()?.setEnabled(on === true)
@@ -270,12 +424,17 @@ export function registerAgentSessionIpc(deps: { host: () => AgentHost | null }):
 
   return {
     // (The app quitting, or agent access going off: every version query
-    // still running, each by its own PID: audit S2.)
+    // still running, each by its own PID: audit S2; and every chat process,
+    // with everything it started.)
     stop: () => {
       stopVersionQueries()
+      for (const entry of chats.values()) entry.chat.stop()
+      chats.clear()
     },
     windowGone: (contentsId) => {
       stopVersionQueries(contentsId)
+      chats.get(contentsId)?.chat.stop()
+      chats.delete(contentsId)
     },
     repairDetected
   }

@@ -24,8 +24,13 @@
 .inspector > .body.ui-cards { padding: 0; background: transparent; }
 /* Up to seven tabs share the column instead of scrolling it: with all seven
    (a template block and the agent both there) the words go one size down. */
-.insp-tabs .ui-tabs { padding: var(--space-2) var(--space-2) 0; }
-.insp-tabs .ui-tab { flex: 1 1 auto; justify-content: center; min-width: 0; padding: 0 var(--space-1); gap: var(--space-1); font-size: var(--fs-13); white-space: nowrap; }
+.insp-tabs { display: flex; align-items: flex-start; gap: var(--space-1); }
+.insp-tabs .ui-tabs { flex: 1 1 auto; min-width: 0; padding: var(--space-2) var(--space-2) 0; }
+.insp-collapse { flex: 0 0 auto; margin: var(--space-2) var(--space-2) 0 0; }
+/* A narrow panel: the words keep their width and the strip wraps instead of
+   crushing them together (they overlapped when seven tabs shared 200 px). */
+.insp-tabs .ui-tabs { flex-wrap: wrap; row-gap: var(--space-1); }
+.insp-tabs .ui-tab { flex: 1 0 auto; justify-content: center; min-width: 0; padding: 0 var(--space-1); gap: var(--space-1); font-size: var(--fs-13); white-space: nowrap; }
 .insp-tabs .ui-tabs:has(.ui-tab:nth-child(6)) .ui-tab { font-size: var(--fs-12); }
 .insp-tabs .ui-tabs:has(.ui-tab:nth-child(7)) .ui-tab { padding: 0 2px; font-size: var(--fs-11); }
 /* A section a timeline shortcut asked for: it flashes once. */
