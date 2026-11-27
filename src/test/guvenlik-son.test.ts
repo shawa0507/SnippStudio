@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { antigravityPrintLine, claudeAddLine, codexEnvQueryArgs, codexPersistLine, codexRegisterLine, openCodeRegisterLine, psq, startLine, tokenSetupLine } from '../main/agent-connect'
+import { antigravityPrintLine, antigravityRegisterLine, claudeAddLine, codexEnvQueryArgs, codexPersistLine, codexRegisterLine, openCodeRegisterLine, psq, startLine, tokenSetupLine } from '../main/agent-connect'
 import { codexTokenEnv } from '../shared/product'
 
 const Q = ['\u2018', '\u2019', '\u201A', '\u201B']
@@ -34,6 +34,7 @@ test('every line built for Windows quotes the path with psq', () => {
     codexRegisterLine(file, url, 'snippstudio', 'win32'),
     openCodeRegisterLine(file, url, 'snippstudio', 'win32'),
     antigravityPrintLine(file, url, 'win32'),
+    antigravityRegisterLine(file, url, 'snippstudio', 'win32'),
     tokenSetupLine(file, 'win32'),
     startLine(tokenSetupLine(file, 'win32'), 'opencode', 'win32', `C:\\Users\\O\u2019Brien\\bin\\opencode.cmd`),
     codexEnvQueryArgs('snippstudio', file).at(-1)!

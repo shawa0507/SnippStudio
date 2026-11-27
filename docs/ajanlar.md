@@ -43,6 +43,8 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 - **Model**, CLI ortamının tuttuğu model kimliklerinden seçilir (Varsayılan, CLI'nin kendi seçimidir). Açık bir sohbette model değişikliği konuşmanın bağlamını korur. **Kip**, CLI'nin izin kipidir: Düzenlemeleri kabul et (varsayılan), Otomatik (CLI'nin sınıflandırıcısı karar verir) ya da Plan.
 - **Sıkıştır**, CLI'nin kendi `/compact` komutunu gönderir; yazmak da aynıdır. Döküm, özetin ardından sürer. `/` yazınca CLI'nin sunduğu komutlar listelenir. İleti kutusunun altındaki **Bağlam**, son turun boyutunu modelin penceresine göre gösterir; %70’e yaklaşınca sararır, %90’a yaklaşınca kızarır ve tepeye yakın **Yakında sıkıştır** der.
 - Görseller: **+** düğmesi ya da yapıştırma en çok dört görsel ekler (PNG, JPEG, WebP, GIF; her biri 8 MB), küçük resim olarak görünür ve × ile kaldırılır.
+- Bir iletinin üzerine gelince altında **Kopyala** görünür; kendi iletilerinde ayrıca **Buraya geri sar** bulunur: o iletiyi ve sonrasındaki her şeyi sohbetten çıkarır, iletiyi (görselleriyle) kutuya geri koyar. CLI'nin kendi dökümü de birlikte kesilir; sonraki yanıt çıkardıklarını artık hatırlamaz. İlk iletide önce sorar: oraya geri sarmak tüm sohbeti bitirir.
+- **Sohbetler** (sol panel) bu projenin sohbetlerini listeler. Her sohbet konuştukça kaydedilir ve ilk sözlerinle adlandırılır; satır onu açar — uygulamadan çıkıp yeniden açtığında CLI aynı konuşmayı sürdürür — çöp düğmesi onu CLI dökümüyle birlikte siler.
 - Uygulamanın `wait` aracı sohbette sunulmaz: kendi sohbeti başka yerde olan ajan içindir. Tur bitince ajan yanıtlar.
 - Sekme şeridindeki **paneli gizle** düğmesi Inspector'ı katlar (hatırlanır): önizleme ve zaman çizelgesi tüm genişliği alır; pencere kenarındaki ok geri getirir.
 - İlk sürümde yalnız **Claude Code** komut satırı barındırılır. Codex ve OpenCode dış ajan olarak kalır; kendi adaptörleri aynı sekmenin arkasına gelebilir.
@@ -53,7 +55,7 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 | Araç | Ne yapar |
 |---|---|
 | `project` | Açık proje: boyut, uzunluk, sürüm, şeritler ve klipler, altyazılar, işaretleyiciler, henüz yerleşmemiş medya. İlk çağrılan. |
-| `new_project` | Bu pencerede boş bir proje başlatır (16:9, 9:16 ya da 1:1; isteğe bağlı ad). Yalnız açık projenin kaydedilmemiş değişikliği ve bekleyen taslağı yoksa; yeni projenin henüz dosyası yoktur. |
+| `new_project` | Bu pencerede boş bir proje başlatır (16:9, 9:16 ya da 1:1; isteğe bağlı ad). Yalnız açık projenin kaydedilmemiş değişikliği ve bekleyen taslağı yoksa; `save:true` verilmedikçe henüz dosyası yoktur. |
 | `transcript` | Söylenenler, satır satır zamanlarıyla; kelime zamanları yalnız ince kesilecek bir aralık için. |
 | `frames` | 1–12 andaki görüntü, dışa aktarmanın çizdiği gibi, tek bir resimde (zamanlarıyla bir ızgara). |
 | `changes` | Okuduğu bir sürümden beri ne değişti: her şeyi yeniden okumaktan ucuz. |
@@ -61,7 +63,7 @@ Geliştirme kopyası (SnippStudio Dev) kendi adıyla (`snippstudio-dev`), kendi 
 | `edit` | Düzenlemeler: kesimler, taşımalar, başlıklar, geçişler, şablonlar ve daha fazlası, tek adımda. |
 | `notes` | İş notların: bekleyenleri okur ve yanıtlar; sen onaylarsın. |
 | `job` | Uzun işler: altyazıyı SnippStudio'nun kendi konuşma modeli yazar. Dil projenin konuşulan dilidir (Altyazı sekmesindeki seçim; yeni proje arayüzün dilini alır); ajan Türkçe ya da İngilizce derse o dil. Hangisi olduğunu `project` cevabı söyler. |
-| `code_clip` | Kod klibi: boş bir `index.html` ile klasörünü açar ve yerleştirir; bir sayfayı denetler (hatalar, boş ya da kararsız kareler, uzunluğu). |
+| `code_clip` | Kod klibi: boş bir `index.html` ile klasörünü açar (kaydedilmemiş projeye gerekirse önce Belgeler yanında dosya verir) ve yerleştirir; bir sayfayı denetler (hatalar, boş ya da kararsız kareler, uzunluğu). |
 | `media` | Medya kutusu: yerel video, ses ve resim dosyalarını yoluyla içe aktarır (`import`); bir varlığı aynı türden yeni bir dosyaya yöneltir (`replace`: yeniden üretilmiş bir miks, yeni bir take), uygulamayı kapatmadan. |
 | `wait` | Senin SnippStudio'dan gönderdiğini bekler: gönderdiğin anda döner (notlar, yazdığın iş, taslağa cevabın); bir şey gelmezse birkaç dakika sonra "henüz yok" der, ajan yeniden çağırır. |
 

@@ -42,7 +42,7 @@ Kendi görüntün olmadan her şeyi denemek için **Dosya → Yardım → Örnek
 
 ### Şablonlar ve kod klipleri
 - **Yazı**'da G şeridi için 31 hazır grafik var (listeler, grafikler, haritalar, satranç tahtası, video oynatıcı…). Hareketini görmek için kartın üstüne gel; **Oynatma çizgisine ekle** onu oraya koyar.
-- **Kod klipleri** videonun üstünde canlı çizilen web sayfalarıdır: içinde `index.html` olan bir klasör (varsa sesi `audio/mix.wav`'da). Sol panelin **Kod** sayfasındaki **Kod filmi ekle** ile ya da oradaki altı kod şablonundan biriyle eklenir. Kod klibinin parametreleri Inspector'da ayarlanır; **Değerleri düzenle** sayılarını ve renklerini açar.
+- **Kod klipleri** videonun üstünde canlı çizilen web sayfalarıdır: içinde `index.html` olan bir klasör (varsa sesi `audio/mix.wav`'da). Sol panelin **Kod** sayfasındaki **Kod filmi ekle** ile ya da oradaki altı kod şablonundan biriyle eklenir. Kod klibinin parametreleri Inspector'da ayarlanır; **Değerleri düzenle** sayılarını ve renklerini açar. Ajan kaydedilmemiş bir projede kod klibi oluşturduğunda önce Belgeler içinde projeye bir `.snipp` dosyası verir.
 
 ### İş notları
 - **N** oynatma çizgisine not koyar; Notlar şeridinde **Shift + sürükle** bir aralık işaretler; orada çift tıklamak o ana bir nottur. Not, önizlemede bir çizim taşıyabilir.

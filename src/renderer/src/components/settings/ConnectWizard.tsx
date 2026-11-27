@@ -56,6 +56,7 @@ const AGENT: Record<ReturnType<typeof familyOf>, StringKey> = {
   claude: 'agent.name.claude',
   codex: 'agent.name.codex',
   opencode: 'agent.name.opencode',
+  antigravity: 'agent.name.antigravity',
   other: 'wiz.prog.other'
 }
 
@@ -172,7 +173,7 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
     try {
       await refreshSession()
       const fam = familyOf(p)
-      if (fam !== 'claude' && fam !== 'codex') return
+      if (fam !== 'claude' && fam !== 'codex' && fam !== 'antigravity') return
       setRegistration('checking')
       const [reg, key] = await Promise.all([
         api?.agentSession.check(fam).catch(() => 'unknown' as const),
@@ -251,7 +252,7 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
     revealIn(steps.current[n - 1], 'nearest', { margin: 8 })
     setFlash(n)
   }
-  const repairNow = async (fam: 'claude' | 'codex' | 'opencode'): Promise<void> => {
+  const repairNow = async (fam: 'claude' | 'codex' | 'opencode' | 'antigravity'): Promise<void> => {
     if (repairing) return
     setRepairing(true)
     try {
@@ -262,7 +263,8 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
       setRepairing(false)
     }
   }
-  const canRepair = (fam: Family): fam is 'claude' | 'codex' | 'opencode' => fam === 'claude' || fam === 'codex' || fam === 'opencode'
+  const canRepair = (fam: Family): fam is 'claude' | 'codex' | 'opencode' | 'antigravity' =>
+    fam === 'claude' || fam === 'codex' || fam === 'opencode' || fam === 'antigravity'
   const runFix = (fix: Fix): void => {
     if ('go' in fix) goTo(fix.go)
     else if ('copy' in fix) void copyRegister()
@@ -293,16 +295,37 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
 
   // ---- step texts ----
   const s2title = t(`wiz.s2.title.${fam}` as StringKey, params)
-  const s2text = fam === 'opencode' ? t('wiz.s2.text.opencode') : fam === 'other' ? t(win ? 'wiz.s2.text.other.win' : 'wiz.s2.text.other.shell') : t(win ? 'wiz.s2.text.win' : 'wiz.s2.text.shell')
-  const s2if = fam === 'other'
-    ? [t('wiz.s2.if1.other'), t('wiz.s2.if2.other'), t('wiz.s2.if3')]
-    : [
-        fam === 'opencode' ? t('wiz.s2.if1.opencode') : p === 'codexApp' ? t('wiz.s2.if1.app') : t('wiz.s2.if1', { program: fam }),
-        ...(win && fam !== 'opencode' ? [t('wiz.s2.if1.win')] : []),
-        t('wiz.s2.if2'),
-        t('wiz.s2.if3')
-      ].slice(0, 3)
-  const s3text = p === 'claude' ? t('wiz.s3.text.claude', params) : p === 'codexCli' ? t(win ? 'wiz.s3.text.codexCli' : 'wiz.s3.text.codexCli.shell') : p === 'codexApp' ? t('wiz.s3.text.codexApp') : p === 'opencode' ? t('wiz.s3.text.opencode') : t('wiz.s3.text.other')
+  const s2text =
+    fam === 'opencode'
+      ? t('wiz.s2.text.opencode')
+      : fam === 'other'
+        ? t(win ? 'wiz.s2.text.other.win' : 'wiz.s2.text.other.shell')
+        : fam === 'antigravity'
+          ? t(win ? 'wiz.s2.text.antigravity.win' : 'wiz.s2.text.antigravity.shell')
+          : t(win ? 'wiz.s2.text.win' : 'wiz.s2.text.shell')
+  const s2if =
+    fam === 'other'
+      ? [t('wiz.s2.if1.other'), t('wiz.s2.if2.other'), t('wiz.s2.if3')]
+      : fam === 'antigravity'
+        ? [t('wiz.s2.if1.antigravity'), t('wiz.s2.if2.other'), t('wiz.s2.if3')]
+        : [
+            fam === 'opencode' ? t('wiz.s2.if1.opencode') : p === 'codexApp' ? t('wiz.s2.if1.app') : t('wiz.s2.if1', { program: fam }),
+            ...(win && fam !== 'opencode' ? [t('wiz.s2.if1.win')] : []),
+            t('wiz.s2.if2'),
+            t('wiz.s2.if3')
+          ].slice(0, 3)
+  const s3text =
+    p === 'claude'
+      ? t('wiz.s3.text.claude', params)
+      : p === 'codexCli'
+        ? t(win ? 'wiz.s3.text.codexCli' : 'wiz.s3.text.codexCli.shell')
+        : p === 'codexApp'
+          ? t('wiz.s3.text.codexApp')
+          : p === 'opencode'
+            ? t('wiz.s3.text.opencode')
+            : p === 'antigravity'
+              ? t('wiz.s3.text.antigravity')
+              : t('wiz.s3.text.other')
   const s3copy = p === 'opencode' || (p === 'codexCli' && !win)
   const registeredRowNow = rows[0]
   const keyRowNow = rows[1]
@@ -366,7 +389,7 @@ export function ConnectWizard({ catalog, agents }: { catalog: AgentInstallation[
         )) : undefined}>
         {s3copy && lines?.launch && <div className="wiz-cmd" data-testid="settings.agent.start.text">{lines.launch}</div>}
         {(connectedRow.mark === 'ok' || connectedRow.say === 'oldWindow') && <Result mark={connectedRow.mark} testid="settings.agent.step.3.result">{rowText(connectedRow)}</Result>}
-        <IfNot testid="settings.agent.step.3.ifnot" items={[t('wiz.s3.if1', params), p === 'claude' ? t('wiz.s3.if2.claude') : p === 'codexApp' ? t('wiz.s3.if2.codexApp') : t('wiz.s3.if2'), t('wiz.s3.if3')]} />
+        <IfNot testid="settings.agent.step.3.ifnot" items={[t('wiz.s3.if1', params), p === 'claude' ? t('wiz.s3.if2.claude') : p === 'codexApp' ? t('wiz.s3.if2.codexApp') : p === 'antigravity' ? t('wiz.s3.if2.antigravity') : t('wiz.s3.if2'), t('wiz.s3.if3')]} />
       </Step>
 
       <Step n={4} state={states[3]} title={t('wiz.s4.title')} flash={flash === 4} stepRef={ref(3)}

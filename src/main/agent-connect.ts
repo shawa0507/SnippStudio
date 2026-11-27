@@ -137,6 +137,26 @@ export function findAgents(env: Record<string, string | undefined>, exists: (p: 
       }
       if (hit) break
     }
+    if (!hit && id === 'antigravity') {
+      const home = env.USERPROFILE ?? env.HOME ?? ''
+      const idePaths =
+        platform === 'win32'
+          ? env.LOCALAPPDATA && path.win32.isAbsolute(env.LOCALAPPDATA)
+            ? [
+                path.join(env.LOCALAPPDATA, 'Programs', 'Antigravity IDE', 'Antigravity IDE.exe'),
+                path.join(env.LOCALAPPDATA, 'Programs', 'Antigravity', 'Antigravity.exe')
+              ]
+            : []
+          : platform === 'darwin'
+            ? ['/Applications/Antigravity.app/Contents/MacOS/Antigravity', '/Applications/Antigravity IDE.app/Contents/MacOS/Antigravity IDE']
+            : ['/usr/bin/antigravity', ...(path.posix.isAbsolute(home) ? [path.posix.join(home, '.local', 'share', 'antigravity', 'antigravity')] : [])]
+      for (const p of idePaths) {
+        if (exists(p)) {
+          hit = p
+          break
+        }
+      }
+    }
     if (hit) found.push({ id, path: hit })
   }
   return found
@@ -165,6 +185,7 @@ export const versionQueriesRunning = (): number => versionQueries.size
 /** Ask the installed executable only for its version. Never use the project
  * directory as cwd and never pass the MCP credential to this process. */
 export async function agentVersion(agent: AgentFound, cwd: string, owner: number | null = null): Promise<string | null> {
+  if (agent.id === 'antigravity' && !/^agy(?:\.(?:exe|cmd|bat))?$/i.test(path.basename(agent.path))) return null
   const r = await agentQuery(agent, ['--version'], cwd, owner, 5_000, false)
   // Display the version, not arbitrary terminal/command output.
   return r && r.code === 0 ? r.output.match(/\b\d+\.\d+\.\d+(?:[-+][\w.-]+)?\b/)?.[0] ?? null : null
@@ -459,6 +480,54 @@ export function antigravityPrintLine(settingsFile: string, url: string, platform
   return [
     `$k = (Get-Content -LiteralPath ${psq(settingsFile)} -Raw | ConvertFrom-Json).token`,
     `@{ mcpServers = @{ ${MANUAL_SERVER} = @{ serverUrl = ${psq(url)}; headers = @{ Authorization = "Bearer $k" } } } } | ConvertTo-Json -Depth 4`
+  ].join('; ')
+}
+
+/** Global MCP config file Antigravity IDE and CLI share (`~/.gemini/config/mcp_config.json`). */
+export function antigravityConfigPath(home: string, platform: string = process.platform): string {
+  return (platform === 'win32' ? path.join : path.posix.join)(home, '.gemini', 'config', 'mcp_config.json')
+}
+
+/** Reads Antigravity's `mcp_config.json` (pure): checks whether `name` points
+ *  at `want.url` (`url` or legacy `serverUrl`) with the current bearer token. */
+export function antigravityRegistrationState(configText: string | null, want: { url: string; token: string; name?: string }): Registration {
+  if (configText === null) return 'missing'
+  let doc: Record<string, unknown>
+  try {
+    doc = JSON.parse(configText) as Record<string, unknown>
+  } catch {
+    return 'unknown'
+  }
+  if (!doc || typeof doc !== 'object') return 'unknown'
+  const servers = doc.mcpServers as Record<string, unknown> | undefined
+  if (!servers || typeof servers !== 'object') return 'missing'
+  const entry = servers[want.name ?? MANUAL_SERVER] as Record<string, unknown> | undefined
+  if (!entry || typeof entry !== 'object') return 'missing'
+  const url = typeof entry.url === 'string' ? entry.url : typeof entry.serverUrl === 'string' ? entry.serverUrl : null
+  if (url !== want.url) return 'stale'
+  const headers = (entry.headers && typeof entry.headers === 'object' ? entry.headers : {}) as Record<string, unknown>
+  const auth = typeof headers.Authorization === 'string' ? headers.Authorization : typeof headers.authorization === 'string' ? headers.authorization : null
+  return auth === `Bearer ${want.token}` ? 'ok' : 'oldKey'
+}
+
+/** One line that registers or updates `name` inside `~/.gemini/config/mcp_config.json`
+ *  without touching existing servers, reading the key from `settingsFile`. */
+export function antigravityRegisterLine(settingsFile: string, url: string, name: string = MANUAL_SERVER, platform: string = process.platform): string {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new RangeError(name)
+  if (platform !== 'win32') {
+    const py = [
+      'import json,os,sys',
+      'p=os.path.expanduser("~/.gemini/config/mcp_config.json")',
+      'os.makedirs(os.path.dirname(p),exist_ok=True)',
+      'd=json.load(open(p)) if os.path.exists(p) and os.path.getsize(p)>0 else {}',
+      'd.setdefault("mcpServers",{})[sys.argv[1]]={"url":sys.argv[2],"headers":{"Authorization":"Bearer "+sys.argv[3]}}',
+      'open(p,"w").write(json.dumps(d,indent=2)+"\\n")'
+    ].join('; ')
+    return `k="$(${posixTokenRead(settingsFile)})"; if [ -n "$k" ]; then python3 -c ${shq(py)} ${shq(name)} ${shq(url)} "$k"; fi`
+  }
+  return [
+    `$k = (Get-Content -LiteralPath ${psq(settingsFile)} -Raw | ConvertFrom-Json).token`,
+    `if ($k) { $dir = Join-Path $HOME '.gemini\\config'; $cfg = Join-Path $dir 'mcp_config.json'; New-Item -ItemType Directory -Force -Path $dir | Out-Null; $raw = if (Test-Path -LiteralPath $cfg) { Get-Content -LiteralPath $cfg -Raw } else { '' }; $doc = if ($raw -and $raw.Trim()) { $raw | ConvertFrom-Json } else { [pscustomobject]@{} }; if (-not $doc.mcpServers) { $doc | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force }; $entry = [pscustomobject]@{ url = ${psq(url)}; headers = [pscustomobject]@{ Authorization = "Bearer $k" } }; $doc.mcpServers | Add-Member -NotePropertyName ${psq(name)} -NotePropertyValue $entry -Force; [System.IO.File]::WriteAllText($cfg, ($doc | ConvertTo-Json -Depth 6), (New-Object System.Text.UTF8Encoding($false))) }`
   ].join('; ')
 }
 

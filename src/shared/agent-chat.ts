@@ -42,6 +42,40 @@ export interface ChatContext {
   window: number
 }
 
+/** A chat as the page hands it over to be saved: the transcript it draws and
+ *  the CLI session it continues. The project and the time are the main
+ *  process's (the window's own). */
+export interface ChatSessionDraft {
+  key: string
+  title: string
+  /** The Claude Code session this chat continues; empty before the first
+   *  answer (a chat the CLI never recorded). */
+  sessionId: string
+  items: unknown[]
+}
+
+/** One saved chat, as the Chats list shows it. */
+export interface ChatSessionMeta {
+  key: string
+  title: string
+  /** The project file it belongs to (a chat is about one project). */
+  project: string
+  sessionId: string
+  updatedAt: number
+}
+
+export interface ChatSessionRecord extends ChatSessionMeta {
+  items: unknown[]
+}
+
+/** What a rewind did. `empty`: nothing is left to continue, so the chat
+ *  starts over. */
+export interface ChatRewindResult {
+  ok: boolean
+  empty?: boolean
+  error?: string
+}
+
 /** What the page is told when it asks to start or send, or at mount. */
 export interface ChatStatus {
   ok: boolean

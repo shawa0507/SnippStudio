@@ -8,7 +8,7 @@ import './dom-stub'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { CHAT_SYSTEM_PROMPT, CHAT_TOKEN_ENV, chatArgs, chatEnv, chatEventsFrom, chatMcpConfig, chatModels, chatUserLine, ClaudeChat } from '../main/agent-chat'
-import { useChat } from '../renderer/src/agent/chat'
+import { useChat, type ChatItem } from '../renderer/src/agent/chat'
 
 const SERVER = 'snipp-dev'
 
@@ -54,6 +54,16 @@ test('a message with a picture: a text block, then the image block (base64)', ()
   ])
   const alone = JSON.parse(chatUserLine('', [image])) as { message: { content: unknown[] } }
   assert.deepEqual(alone.message.content, [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }])
+})
+
+test('a saved chat is continued with the CLI own --resume, only when there is one', () => {
+  const plain = chatArgs('c.json', SERVER)
+  assert.ok(!plain.includes('--resume'))
+  const resumed = chatArgs('c.json', SERVER, undefined, false, 'acceptEdits', 'c035601c-80b4-486a-a677-6447753145dc')
+  const at = resumed.indexOf('--resume')
+  assert.ok(at >= 0)
+  assert.equal(resumed[at + 1], 'c035601c-80b4-486a-a677-6447753145dc')
+  assert.ok(at < resumed.indexOf('--allowedTools'))
 })
 
 test('the model flag: absent by default, before the system prompt when chosen', () => {
@@ -219,6 +229,34 @@ test('a server that did not connect is said once, before the first message', () 
   assert.equal(items[0].kind, 'note')
   assert.equal((items[0] as { code: string }).code, 'mcp-failed')
   assert.equal((items[0] as { text: string }).text, SERVER)
+})
+
+test('rewind takes a message and everything after it out; the first message clears the chat', async () => {
+  const store = useChat
+  const key = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+  const first: ChatItem = { kind: 'text', id: 101, role: 'user', text: 'first', at: 1000 }
+  const answer: ChatItem = { kind: 'text', id: 102, role: 'assistant', text: 'an answer', at: 2000 }
+  const second: ChatItem = { kind: 'text', id: 103, role: 'user', text: 'second', images: ['data:image/png;base64,QUJD'], at: 3000 }
+  const sessionId = 'c035601c-80b4-486a-a677-6447753145dc'
+  store.setState({ items: [first, answer, second], attachments: [], busy: true, thinking: true, error: null, phase: 'ready', draft: 'in the box', chatKey: key, sessionId, resumeExpected: null })
+  await store.getState().rewindTo(103)
+  assert.deepEqual(store.getState().items.map((item) => (item.kind === 'text' ? item.text : '')), ['first', 'an answer'])
+  assert.equal(store.getState().busy, false)
+  assert.equal(store.getState().phase, 'off')
+  // (The chat goes on: the same saved chat, its session resumed; the message
+  // comes back to the box, its picture with it.)
+  assert.equal(store.getState().chatKey, key)
+  assert.equal(store.getState().sessionId, sessionId)
+  assert.equal(store.getState().resumeExpected, sessionId)
+  assert.equal(store.getState().draft, 'second')
+  assert.deepEqual(store.getState().attachments.map((a) => [a.mediaType, a.data]), [['image/png', 'QUJD']])
+  // (The first message itself: nothing is left, so a new chat starts.)
+  store.setState({ items: [first, answer, second], busy: false, thinking: false, draft: 'x' })
+  await store.getState().rewindTo(101)
+  assert.equal(store.getState().items.length, 0)
+  assert.notEqual(store.getState().chatKey, key)
+  assert.equal(store.getState().sessionId, '')
+  assert.equal(store.getState().draft, 'first')
 })
 
 test('ClaudeChat starts stopped and sending before a program answers changes nothing', async () => {

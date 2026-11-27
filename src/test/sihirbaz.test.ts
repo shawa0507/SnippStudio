@@ -105,20 +105,27 @@ test('programs without a registration to read: a dash, done once the agent conne
   assert.equal(marks(f).registered, 'none:manual')
   assert.equal(marks(f).key, 'none:later')
   assert.deepEqual(stepStates(f), ['ok', 'now', 'todo', 'todo', 'todo'])
-  const on = { ...f, heard: { seen: [{ client: 'antigravity', at: 5 }], refused: null } }
+  const on = { ...f, heard: { seen: [{ client: 'custom-mcp-client', at: 5 }], refused: null } }
   assert.deepEqual(stepStates(on), ['ok', 'ok', 'ok', 'ok', 'ok'])
 })
 
 test('the client names, the first program shown, the time of day', () => {
-  assert.deepEqual(['claude-code', 'codex-mcp-client', 'Codex Desktop', 'opencode', 'antigravity', 'x'].map(clientFamily), ['claude', 'codex', 'codex', 'opencode', 'other', 'other'])
+  assert.deepEqual(['claude-code', 'codex-mcp-client', 'Codex Desktop', 'opencode', 'antigravity', 'x'].map(clientFamily), ['claude', 'codex', 'codex', 'opencode', 'antigravity', 'other'])
   const cat = (ids: string[]): { id: 'claude' | 'codex' | 'opencode' | 'antigravity'; installed: boolean; version: null }[] => (['claude', 'codex', 'opencode', 'antigravity'] as const).map((id) => ({ id, installed: ids.includes(id), version: null }))
   assert.equal(defaultProgram('opencode', cat([]), null), 'opencode', 'remembered')
   assert.equal(defaultProgram('nonsense', cat(['claude', 'codex']), null), 'claude')
   assert.equal(defaultProgram(null, cat(['codex']), 'C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1_x64__2p\\app\\resources\\codex.exe'), 'codexApp')
   assert.equal(defaultProgram(null, cat(['codex']), 'C:\\Users\\u\\AppData\\Roaming\\npm\\codex.cmd'), 'codexCli')
-  assert.equal(defaultProgram(null, cat(['antigravity']), null), 'other')
+  assert.equal(defaultProgram(null, cat(['antigravity']), null), 'antigravity')
   assert.equal(defaultProgram(null, null, null), 'claude')
   assert.match(timeOfDay(Date.UTC(2026, 10, 22, 14, 2)), /^\d\d:02$/)
+
+  const agyMissing = base({ program: 'antigravity', registration: 'missing', codexKey: null })
+  assert.equal(marks(agyMissing).registered, 'bad:missing')
+  assert.deepEqual(checkRows(agyMissing)[0].fix, { repair: 'antigravity' })
+  const agyOld = base({ program: 'antigravity', registration: 'oldKey', codexKey: null })
+  assert.equal(marks(agyOld).key, 'bad:old')
+  assert.deepEqual(checkRows(agyOld)[1].fix, { repair: 'antigravity' })
 })
 
 test('the host keeps each program\'s last active session and the latest refusal (no key, no session id)', () => {

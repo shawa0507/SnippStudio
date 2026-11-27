@@ -8,11 +8,12 @@
 // slash menu lists what the CLI itself advertised. The process lives in the
 // main process (main/agent-chat.ts); external agents are untouched.
 import { useEffect, useRef, useState } from 'react'
-import { Button, Icon, IconButton, InfoMark, Select, TextArea, Toggle, confirmDialog, useT, type StringKey } from '../../ui'
+import { Button, Icon, IconButton, InfoMark, Select, TextArea, Toggle, Tooltip, confirmDialog, useT, type StringKey } from '../../ui'
 import type { ChatMode } from '../../../../shared/agent-chat'
 import { connectAgent, useSession } from '../../agent/session'
-import { useChat, type ChatItem, type ChatNoteItem, type ChatToolItem } from '../../agent/chat'
+import { useChat, type ChatItem, type ChatNoteItem, type ChatTextItem, type ChatToolItem } from '../../agent/chat'
 import { openSettings } from '../settings/open'
+import { api } from '../../platform'
 import { Markdown } from './markdown-view'
 import './chat.css'
 
@@ -103,25 +104,72 @@ function noteText(t: ReturnType<typeof useT>, note: ChatNoteItem): string {
       return t('chat.imageType')
     case 'imageTooBig':
       return t('chat.imageTooBig')
+    case 'rewindFailed':
+      return t('chat.rewindFailed')
+    case 'sessionLost':
+      return t('chat.sessionLost')
     default:
       return t(REFUSALS[note.code ?? ''] ?? 'chat.err.notStarted')
   }
 }
 
-function Item({ item }: { item: ChatItem }): JSX.Element {
+/** What a message offers when it is hovered: its words on the clipboard, and
+ *  for the user's own, the way back to just before it. */
+function MsgActions({ item, onRewound }: { item: ChatTextItem; onRewound?: () => void }): JSX.Element {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const timer = useRef(0)
+  const items = useChat((s) => s.items)
+  const rewindTo = useChat((s) => s.rewindTo)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const copy = async (): Promise<void> => {
+    // (Main writes the clipboard: the page's own is refused by the app's scheme.)
+    const ok = (await api?.clipboardWriteText(item.text).catch(() => false)) ?? false
+    if (!ok) return
+    setCopied(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), 1400)
+  }
+  // (The first message has nothing before it: rewinding there would end the
+  // whole chat, so it asks first.)
+  const rewind = async (): Promise<void> => {
+    const first = items.find((x) => x.kind === 'text' && x.role === 'user')
+    if (first && first.id === item.id) {
+      const yes = await confirmDialog({ title: t('chat.rewindAllAsk'), message: t('chat.rewindAllText'), confirm: t('chat.rewindAllOk'), cancel: t('agent.cancel'), danger: true })
+      if (!yes) return
+    }
+    await rewindTo(item.id)
+    onRewound?.()
+  }
+  return (
+    <div className="chat-msg-actions" data-testid="chat.actions" data-role={item.role}>
+      <IconButton icon={copied ? 'check' : 'copy'} size="sm" variant="ghost" label={copied ? t('chat.copied') : t('chat.copy')} onClick={() => void copy()} testid="chat.copy" />
+      {item.role === 'user' && (
+        <Tooltip content={t('chat.rewind.hint')} heading={t('chat.rewind')}>
+          <IconButton icon="rotate-ccw" size="sm" variant="ghost" tooltip={false} label={t('chat.rewind')} onClick={() => void rewind()} testid="chat.rewind" />
+        </Tooltip>
+      )}
+    </div>
+  )
+}
+
+function Item({ item, onRewound }: { item: ChatItem; onRewound?: () => void }): JSX.Element {
   const t = useT()
   if (item.kind === 'text') {
     return (
       <div className={`chat-msg is-${item.role}`} data-testid={`chat.msg.${item.role}`}>
-        <div className="chat-bubble">
-          {item.images?.length ? (
-            <div className="chat-bubble-images">
-              {item.images.map((src, i) => (
-                <img className="chat-image" src={src} alt="" key={i} />
-              ))}
-            </div>
-          ) : null}
-          {item.role === 'assistant' ? <Markdown text={item.text} /> : item.text ? <span className="chat-para">{item.text}</span> : null}
+        <div className="chat-msg-body">
+          <div className="chat-bubble">
+            {item.images?.length ? (
+              <div className="chat-bubble-images">
+                {item.images.map((src, i) => (
+                  <img className="chat-image" src={src} alt="" key={i} />
+                ))}
+              </div>
+            ) : null}
+            {item.role === 'assistant' ? <Markdown text={item.text} /> : item.text ? <span className="chat-para">{item.text}</span> : null}
+          </div>
+          <MsgActions item={item} onRewound={onRewound} />
         </div>
       </div>
     )
@@ -286,7 +334,7 @@ export function ChatTab(): JSX.Element {
       <div className="chat-list" ref={list} role="log" aria-label={t('chat.name')} data-testid="chat.list">
         {items.length === 0 && <div className="chat-empty">{t('chat.empty')}</div>}
         {items.map((item) => (
-          <Item key={item.id} item={item} />
+          <Item key={item.id} item={item} onRewound={() => window.setTimeout(() => input.current?.focus(), 0)} />
         ))}
         {(thinking || (busy && !responded)) && (
           <div className="chat-typing" data-testid={thinking ? 'chat.thinking' : 'chat.typing'} aria-live="polite">

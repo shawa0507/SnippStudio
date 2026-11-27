@@ -27,6 +27,7 @@ export const RESERVED_TOOLS: readonly string[] = []
 export const SERVER_INSTRUCTIONS =
   'A video editor on this computer; these tools read and edit the project open in it. Times are timeline seconds. ' +
   'Start with project; new_project starts an empty one (clean projects only). The app measures (analyze), you decide; send many changes in one edit. Never render or export. ' +
+  'A code clip needs a project file; when there is none, one is made and you are told where. ' +
   'When your work is done, call wait for the user\'s next request, and again while nothing came. ' +
   'Subagents may add as:"<name>" (≤12 letters, digits, -) to each call.'
 
@@ -251,18 +252,26 @@ export function agentTools(): AgentTool[] {
       name: 'project',
       title: 'Project',
       description:
-        'The open project: size, length, version v, draft state, selection; tracks with clips (linked picture+sound one row; runs of pieces of one file summed up), subtitles, markers, media not placed yet (ids). track: list every clip of that track.',
-      inputSchema: { type: 'object', properties: { track: { type: 'string', description: 'Track id or name; "media", "markers", "titles": all of them' }, state: VIEW }, additionalProperties: false },
+        'The open project: size, length, version v, draft, selection, file (or \'not saved\'); tracks with clips (linked picture+sound one row; runs of one file summed), subtitles, markers, unplaced media (ids). save:{dir?,name?}: gives an unsaved project a file (Documents unless dir). track: clips of that track.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          track: { type: 'string', description: 'Track id or name; "media", "markers", "titles": all of them' },
+          state: VIEW,
+          save: { type: 'object', properties: { dir: { type: 'string' }, name: { type: 'string' } }, additionalProperties: false }
+        },
+        additionalProperties: false
+      },
       annotations: read
     },
     {
       name: 'new_project',
       title: 'New project',
       description:
-        'Starts an empty project in this window: aspect 16:9 (default), 9:16 or 1:1; name. Only when the open one has no unsaved changes and no waiting draft (otherwise nothing is changed: the user saves or discards first). It has no file yet. Call project after.',
+        'Starts an empty project in this window: aspect 16:9 (default), 9:16 or 1:1; name. Only when the open one has no unsaved changes and no waiting draft (otherwise nothing is changed: the user saves or discards first). Unsaved unless save:true. Call project after.',
       inputSchema: {
         type: 'object',
-        properties: { aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] }, name: { type: 'string' } },
+        properties: { aspect: { type: 'string', enum: ['16:9', '9:16', '1:1'] }, name: { type: 'string' }, save: { type: 'boolean' } },
         additionalProperties: false
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
@@ -401,7 +410,7 @@ export function agentTools(): AgentTool[] {
       name: 'code_clip',
       title: 'Code clip',
       description:
-        'A web page drawn live as a clip. create{name,start,end,track?,direct?}: makes folder anim/<name>/ with an empty index.html, placed over the picture (direct: straight onto the timeline); answers the folder. Write any self-contained page there; it plays as written, no network; where the page is transparent the film shows through. check:<clip id>: draws 3 moments twice; answers errors, blank or unstable frames, its length.',
+        'A web page drawn live as a clip. create{name,start,end,track?,direct?}: makes folder anim/<name>/ with an empty index.html, placed over the picture (direct: straight onto the timeline); answers the folder. If unsaved, a project file is made in Documents and named. Write any self-contained page there; it plays as written, no network; where the page is transparent the film shows through. check:<clip id>: draws 3 moments twice; answers errors, blank or unstable frames, its length.',
       inputSchema: {
         type: 'object',
         properties: {

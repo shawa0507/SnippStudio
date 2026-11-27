@@ -4,9 +4,9 @@
 // (an icon over its word) on the ground, the chosen category's page beside it
 // on a card. The categories are what the program has: Media, Audio (sounds
 // and music), Text (titles and templates), Captions, Effects, Transitions,
-// Filters (the looks), Code (code films and templates). The old two tabs
-// (Media / Library) and their pages are spread over them; nothing is added
-// that the program did not have.
+// Filters (the looks), Code (code films and templates), Chats (the project's
+// saved agent chats). The old two tabs (Media / Library) and their pages are
+// spread over them.
 import { onShellRequest, requestShell } from './app/requests'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStore } from '../state/store'
@@ -21,6 +21,7 @@ import { setDockOpen, useDockOpen } from './app/dock-open'
 import { CodeTemplates } from './CodeTemplates'
 import { CaptionsPage } from './CaptionsPage'
 import { VoiceoverPage } from './VoiceoverPage'
+import { ChatsPage } from './agent/ChatsPage'
 import type { CaptionSource } from '../subtitles/source'
 import { LookTiles } from './inspector/clip-look'
 import { api } from '../platform'
@@ -30,7 +31,7 @@ import { SectionScope } from '../ui/Section'
 
 /** The categories, in the column's order. The ids of the old pages are kept
  *  (media, sounds, templates, effects): their test ids are dock.page.<id>. */
-export type DockView = 'media' | 'sounds' | 'templates' | 'captions' | 'voiceover' | 'effects' | 'transitions' | 'filters' | 'code'
+export type DockView = 'media' | 'sounds' | 'templates' | 'captions' | 'voiceover' | 'effects' | 'transitions' | 'filters' | 'code' | 'chats'
 
 const CATS: [DockView, IconName, StringKey, StringKey][] = [
   ['media', 'image', 'dock.cat.media', 'dock.cat.media.hint'],
@@ -41,7 +42,8 @@ const CATS: [DockView, IconName, StringKey, StringKey][] = [
   ['effects', 'sparkles', 'dock.cat.effects', 'dock.cat.effects.hint'],
   ['transitions', 'blend', 'dock.cat.transitions', 'dock.cat.transitions.hint'],
   ['filters', 'swatch-book', 'dock.cat.filters', 'dock.cat.filters.hint'],
-  ['code', 'code', 'dock.cat.code', 'dock.cat.code.hint']
+  ['code', 'code', 'dock.cat.code', 'dock.cat.code.hint'],
+  ['chats', 'bot', 'dock.cat.chats', 'dock.cat.chats.hint']
 ]
 
 const KEY = 'snipp-workspace-dock'
@@ -149,6 +151,7 @@ export function WorkspaceDock({ onImport, onTranscribe, onTranscribeRange }: { o
         <div className="dock-page dock-effects" id="dock-page-transitions" role="tabpanel" aria-label={name('transitions')} hidden={view !== 'transitions'}>{view === 'transitions' && <TransitionsPage />}</div>
         <div className="dock-page dock-scroll" id="dock-page-filters" role="tabpanel" aria-label={name('filters')} hidden={view !== 'filters'}>{view === 'filters' && <FiltersPage />}</div>
         <div className="dock-page dock-scroll" id="dock-page-code" role="tabpanel" aria-label={name('code')} hidden={view !== 'code'}>{view === 'code' && <CodePage />}</div>
+        <div className="dock-page dock-scroll" id="dock-page-chats" role="tabpanel" aria-label={name('chats')} hidden={view !== 'chats'}>{view === 'chats' && <ChatsPage />}</div>
       </div>
     </aside>
   )

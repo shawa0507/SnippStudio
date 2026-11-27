@@ -579,8 +579,10 @@ export const STRINGS = {
   'codeFilm.versionOverLimit': { en: 'Nothing was put back: the files as they are now are over the 2 MB a version keeps, so they could not be kept first.', tr: 'Hiçbir şey geri konmadı: dosyaların şimdiki hâli bir sürümün tuttuğu 2 MB\'ı aşıyor, önce saklanamadı.' },
   'codeFilm.versionsOff': { en: 'No versions kept: the text files of this folder are over 2 MB.', tr: 'Sürüm tutulmuyor: bu klasörün metin dosyaları 2 MB\'ı aşıyor.' },
   'codeFilm.writing': { en: 'being written', tr: 'yazılıyor' },
-  'codeFilm.saveFirst': { en: 'The agent wants to make a code clip: save the project first.', tr: 'Ajan bir kod klibi açmak istiyor: önce projeyi kaydet.' },
+  'codeFilm.saveFirst': { en: 'The agent could not give this project a file: save the project first.', tr: 'Ajan bu projeye dosya veremedi: önce projeyi kaydet.' },
   'codeFilm.saveProject': { en: 'Save project', tr: 'Projeyi kaydet' },
+  'project.autoSaved': { en: 'The agent gave this project a file: {file}', tr: 'Ajan bu projeye bir dosya verdi: {file}' },
+  'project.showInFolder': { en: 'Show in folder', tr: 'Klasörde göster' },
   // Phase 5f: a code page's parameters, the code templates, the project look.
   'codeFilm.params': { en: 'Parameters ({n})', tr: 'Parametreler ({n})' },
   'codeFilm.paramsReset': { en: "Back to the page's own values", tr: 'Sayfanın kendi değerlerine dön' },

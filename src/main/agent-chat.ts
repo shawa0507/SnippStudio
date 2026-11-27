@@ -40,8 +40,9 @@ export function chatMcpConfig(serverName: string, url: string): string {
 /** The arguments of one chat process. The app's own server is the only MCP
  *  server (`--strict-mcp-config`); its `wait` is disallowed in a chat. Shell
  *  commands are the user's choice: `Bash` in the allow list, never prompts
- *  (print mode has no one to ask). */
-export function chatArgs(configFile: string, serverName: string, model?: string, shell = false, mode: ChatMode = 'acceptEdits'): string[] {
+ *  (print mode has no one to ask). `resume` continues a saved session (the
+ *  CLI's own `--resume`, same session id). */
+export function chatArgs(configFile: string, serverName: string, model?: string, shell = false, mode: ChatMode = 'acceptEdits', resume?: string): string[] {
   return [
     '-p',
     '--input-format', 'stream-json',
@@ -50,6 +51,7 @@ export function chatArgs(configFile: string, serverName: string, model?: string,
     '--include-partial-messages',
     '--mcp-config', configFile,
     '--strict-mcp-config',
+    ...(resume ? ['--resume', resume] : []),
     '--permission-mode', mode,
     '--allowedTools', shell ? `mcp__${serverName} Bash` : `mcp__${serverName}`,
     '--disallowedTools', `mcp__${serverName}__wait`,
@@ -224,6 +226,8 @@ export interface ClaudeChatOptions {
   serverName: string
   /** The model for this process; empty: the CLI's own setting. */
   model?: string
+  /** A saved session to continue (`--resume`), or none: a new one. */
+  resume?: string
   /** The user allowed shell commands (Bash, no prompts). */
   shell?: boolean
   mode?: ChatMode
@@ -268,7 +272,7 @@ export class ClaudeChat {
       this.configDir = await mkdtemp(path.join(tmpdir(), 'snipp-chat-'))
       const configFile = path.join(this.configDir, 'mcp.json')
       await writeFile(configFile, chatMcpConfig(this.options.serverName, this.options.url), { mode: 0o600 })
-      const spec = chatSpawn(this.options, chatArgs(configFile, this.options.serverName, this.options.model, this.options.shell === true, this.options.mode), this.options.platform)
+      const spec = chatSpawn(this.options, chatArgs(configFile, this.options.serverName, this.options.model, this.options.shell === true, this.options.mode, this.options.resume), this.options.platform)
       const shell = typeof spec.args === 'string'
       const spawnArgs: string[] = typeof spec.args === 'string' ? [spec.args] : spec.args
       const child = spawn(spec.file, spawnArgs, {

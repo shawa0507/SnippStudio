@@ -73,16 +73,18 @@ test('no slider steps by 5 % (or 2 %) any more: 1 %, or its unit’s fine step',
   assert.deepEqual(bad, [])
 })
 
-test('the left panel: nine categories, each a word in both languages, none the program lacks', () => {
+test('the left panel: ten categories, each a word in both languages, none the program lacks', () => {
   const dock = readFileSync(join(SRC, 'components', 'WorkspaceDock.tsx'), 'utf8')
   const ids = [...dock.matchAll(/\['(\w+)', '[a-z-]+', 'dock\.cat\.(\w+)'/g)].map((m) => m[1])
   // Voiceover since REF-AB (worker S): the program records a voice-over now.
-  assert.deepEqual(ids, ['media', 'sounds', 'templates', 'captions', 'voiceover', 'effects', 'transitions', 'filters', 'code'])
+  // Chats since the saved sessions: the project's own agent chats.
+  assert.deepEqual(ids, ['media', 'sounds', 'templates', 'captions', 'voiceover', 'effects', 'transitions', 'filters', 'code', 'chats'])
   for (const m of dock.matchAll(/'(dock\.cat\.\w+(?:\.hint)?)'/g)) {
     const s = (STRINGS as Record<string, { en: string; tr?: string }>)[m[1]]
     assert.ok(s?.en && s.tr, `${m[1]} in English and Turkish`)
   }
   assert.ok(existsSync(join(SRC, 'audio', 'recorder.ts')), 'the Voiceover category has its recorder')
+  assert.ok(existsSync(join(SRC, 'components', 'agent', 'ChatsPage.tsx')), 'the Chats category has its page')
 })
 
 test('the Clip tab is cards in the brief’s order, and every control of the old panel is in one', () => {

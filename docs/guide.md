@@ -42,7 +42,7 @@ To try everything without your own footage, use **File → Help → Open the sam
 
 ### Templates and code clips
 - **Text** has 31 ready graphics for the G lane (lists, charts, maps, a chess board, a video player…). Hover a card to see it move; **Insert at playhead** puts it there.
-- **Code clips** are web pages drawn live over the video: a folder with an `index.html` (and, if there is one, the sound in `audio/mix.wav`). Add one with **Add a code film** on the left panel's **Code** page, or one of the six code templates there. A code clip's parameters are set in the Inspector; **Edit values** opens its numbers and colours.
+- **Code clips** are web pages drawn live over the video: a folder with an `index.html` (and, if there is one, the sound in `audio/mix.wav`). Add one with **Add a code film** on the left panel's **Code** page, or one of the six code templates there. A code clip's parameters are set in the Inspector; **Edit values** opens its numbers and colours. When an agent creates a code clip on an unsaved project, it gives the project a `.snipp` file in Documents first.
 
 ### Work notes
 - **N** puts a note at the playhead; **Shift + drag** on the Notes lane marks a stretch; a double click there is a note at that moment. A note can carry a drawing on the preview.

@@ -41,6 +41,8 @@ export const STRINGS_UI4 = {
   'dock.cat.filters.hint': { en: 'Looks (LUTs) for the selected clip', tr: 'Seçili klibe görünümler (LUT)' },
   'dock.cat.code': { en: 'Code', tr: 'Kod' },
   'dock.cat.code.hint': { en: 'Code films and code templates', tr: 'Kod filmleri ve kod şablonları' },
+  'dock.cat.chats': { en: 'Chats', tr: 'Sohbetler' },
+  'dock.cat.chats.hint': { en: 'Your saved chats about this project', tr: 'Bu projeyle ilgili kayıtlı sohbetlerin' },
   'dock.filters.none': { en: 'Select a picture or video clip to give it a look.', tr: 'Görünüm vermek için bir resim ya da video klibi seç.' },
   'dock.filters.for': { en: 'Applies to {name}', tr: '{name} klibine uygulanır' },
   'dock.code.film': { en: 'Add a code film', tr: 'Kod filmi ekle' },

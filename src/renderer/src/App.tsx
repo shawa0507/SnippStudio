@@ -705,6 +705,8 @@ export function App(): JSX.Element {
   useEffect(() => onShellRequest((what) => {
     if (what === 'import') void handleImport()
     else if (what === 'export') handleExport()
+    // (A saved chat picked in the left panel: its tab needs the panel open.)
+    else if (what === 'inspector:open') patchLayout({ inspectorOpen: true })
     else if (what === 'restart') {
       void handleSave(true).then(async (saved) => {
         if (!saved) return showToast(t('settings.general.restart.failed'), true)
@@ -712,7 +714,7 @@ export function App(): JSX.Element {
         if (!r.ok) showToast(t('settings.general.restart.busy'), true)
       })
     }
-  }), [handleImport, handleExport, handleSave, showToast])
+  }), [handleImport, handleExport, handleSave, patchLayout, showToast])
 
   // The sample project (phase 9b): made as a new copy, then opened from its
   // file like any project (File → Help, the Projects window).

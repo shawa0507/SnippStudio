@@ -9,12 +9,12 @@
 import type { AgentInstallation, AgentRegistration, AgentSessionStatus } from '../../../../preload/index'
 
 /** The programs the wizard knows, in the chooser's order. */
-export const PROGRAMS = ['claude', 'codexCli', 'codexApp', 'opencode', 'other'] as const
+export const PROGRAMS = ['claude', 'codexCli', 'codexApp', 'opencode', 'antigravity', 'other'] as const
 export type Program = typeof PROGRAMS[number]
 
 /** Which agent family a program is (the server knows the family by the
  *  MCP client name; both Codexes share one registration). */
-export type Family = 'claude' | 'codex' | 'opencode' | 'other'
+export type Family = 'claude' | 'codex' | 'opencode' | 'antigravity' | 'other'
 export const familyOf = (p: Program): Family => (p === 'codexCli' || p === 'codexApp' ? 'codex' : p)
 
 /** The family of an MCP client name (the same rule as agent/holder.ts
@@ -23,18 +23,22 @@ export function clientFamily(client: string): Family {
   if (/claude/i.test(client)) return 'claude'
   if (/codex/i.test(client)) return 'codex'
   if (/opencode/i.test(client)) return 'opencode'
+  if (/antigravity|agy/i.test(client)) return 'antigravity'
   return 'other'
 }
 
-/** Programs whose own command says how they have the app registered. */
-export const checkable = (p: Program): boolean => familyOf(p) === 'claude' || familyOf(p) === 'codex'
+/** Programs whose registration the app can read directly. */
+export const checkable = (p: Program): boolean => {
+  const fam = familyOf(p)
+  return fam === 'claude' || fam === 'codex' || fam === 'antigravity'
+}
 
 export type CodexKey = 'same' | 'different' | 'missing' | 'unknown'
 export type Mark = 'ok' | 'bad' | 'none'
 export type RowId = 'registered' | 'key' | 'listening' | 'connected'
 /** What a row's button does: go to a step, copy the step 2 line again, turn
  *  access on, or run the line itself (the program's own reconnect). */
-export type Fix = { go: 1 | 2 | 3 } | { copy: true } | { access: true } | { repair: 'claude' | 'codex' }
+export type Fix = { go: 1 | 2 | 3 } | { copy: true } | { access: true } | { repair: 'claude' | 'codex' | 'antigravity' }
 
 export interface Row {
   id: RowId
@@ -79,13 +83,21 @@ function freshRefusal(f: Facts, why: 'key' | 'session'): number | null {
 function registeredRow(f: Facts): Row {
   const id = 'registered'
   if (!checkable(f.program)) return { id, mark: 'none', say: 'manual' }
+  const repairFix: Fix =
+    f.program === 'claude'
+      ? { repair: 'claude' }
+      : f.program.startsWith('codex')
+        ? { repair: 'codex' }
+        : f.program === 'antigravity'
+          ? { repair: 'antigravity' }
+          : { go: 2 }
   switch (f.registration) {
     case null: return { id, mark: 'none', say: 'unchecked' }
     case 'checking': return { id, mark: 'none', say: 'checking' }
     case 'ok':
     case 'oldKey': return { id, mark: 'ok', say: 'found' }
-    case 'missing': return { id, mark: 'bad', say: 'missing', fix: f.program === 'claude' ? { repair: 'claude' } : f.program.startsWith('codex') ? { repair: 'codex' } : { go: 2 } }
-    case 'stale': return { id, mark: 'bad', say: 'stale', fix: f.program === 'claude' ? { repair: 'claude' } : f.program.startsWith('codex') ? { repair: 'codex' } : { go: 2 } }
+    case 'missing': return { id, mark: 'bad', say: 'missing', fix: repairFix }
+    case 'stale': return { id, mark: 'bad', say: 'stale', fix: repairFix }
     case 'notInstalled': return { id, mark: 'bad', say: 'notInstalled' }
     default: return { id, mark: 'none', say: 'unknown' }
   }
@@ -95,7 +107,7 @@ function registeredRow(f: Facts): Row {
  *  'notSaved' (Codex's variable missing), or null (nothing to read). */
 function keyVerdict(f: Facts): 'ok' | 'old' | 'notSaved' | null {
   const fam = familyOf(f.program)
-  if (fam === 'claude') return f.registration === 'oldKey' ? 'old' : f.registration === 'ok' ? 'ok' : null
+  if (fam === 'claude' || fam === 'antigravity') return f.registration === 'oldKey' ? 'old' : f.registration === 'ok' ? 'ok' : null
   if (fam === 'codex') return f.codexKey === 'different' ? 'old' : f.codexKey === 'missing' ? 'notSaved' : f.codexKey === 'same' ? 'ok' : null
   return null
 }
@@ -104,7 +116,14 @@ function keyRow(f: Facts): Row {
   const id = 'key'
   const verdict = keyVerdict(f)
   const family = familyOf(f.program)
-  const reconnect: Fix = family === 'claude' ? { repair: 'claude' } : family === 'codex' ? { repair: 'codex' } : { copy: true }
+  const reconnect: Fix =
+    family === 'claude'
+      ? { repair: 'claude' }
+      : family === 'codex'
+        ? { repair: 'codex' }
+        : family === 'antigravity'
+          ? { repair: 'antigravity' }
+          : { copy: true }
   if (verdict === 'old' || verdict === 'notSaved') return { id, mark: 'bad', say: verdict, fix: reconnect }
   const refused = freshRefusal(f, 'key')
   if (refused !== null && !(verdict === 'ok' && (f.checkedAt ?? 0) > refused)) return { id, mark: 'bad', say: 'refused', at: refused, fix: reconnect }
@@ -168,7 +187,7 @@ export function defaultProgram(remembered: string | null, catalog: readonly Agen
   if (has('claude')) return 'claude'
   if (has('codex')) return codexPath && isCodexApp(codexPath) ? 'codexApp' : 'codexCli'
   if (has('opencode')) return 'opencode'
-  if (has('antigravity')) return 'other'
+  if (has('antigravity')) return 'antigravity'
   return 'claude'
 }
 

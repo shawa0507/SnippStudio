@@ -162,6 +162,11 @@ export function Inspector({ onTranscribe, onCollapse }: { onTranscribe: () => vo
       setTab('subs')
       return
     }
+    // The left panel's Chats page (a saved chat picked there).
+    if (inspectorFocus.section === 'chat') {
+      setTab('chat')
+      return
+    }
     const projectPart = PART_OF[inspectorFocus.section]
     if (projectPart) setPart(projectPart)
     setTab(

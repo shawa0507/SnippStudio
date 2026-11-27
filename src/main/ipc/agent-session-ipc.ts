@@ -16,12 +16,13 @@ import fs from 'node:fs'
 import { execFile } from 'node:child_process'
 import { systemTool, systemToolCwd } from '../system-tool'
 import type { AgentHost, AgentStatus } from '../agent-host'
-import { AGENT_IDS, agentEnv, agentQuery, agentVersion, antigravityPrintLine, claudeAddLine, codexAddLine, codexEnvLine, codexEnvVerdict, codexPersistLine, codexLaunchLine, codexRegisterLine, codexRegistrationState, codexTokenEnv, fileExists, findAgents, openCodeConfig, openCodeRegisterLine, openCodeTokenEnv, registrationState, startLine, stopVersionQueries, tokenEnvQueryArgs, tokenSetupLine, type AgentFound, type AgentId, type CodexEnvVerdict, type Registration } from '../agent-connect'
+import { AGENT_IDS, agentEnv, agentQuery, agentVersion, antigravityConfigPath, antigravityRegisterLine, antigravityRegistrationState, claudeAddLine, codexAddLine, codexEnvLine, codexEnvVerdict, codexPersistLine, codexLaunchLine, codexRegisterLine, codexRegistrationState, codexTokenEnv, fileExists, findAgents, openCodeConfig, openCodeRegisterLine, openCodeTokenEnv, registrationState, startLine, stopVersionQueries, tokenEnvQueryArgs, tokenSetupLine, type AgentFound, type AgentId, type CodexEnvVerdict, type Registration } from '../agent-connect'
 import { CHANNEL, agentNameFor } from '../channel'
 import { filterName } from '../strings-main'
 import { registeredServerName } from '../../shared/product'
 import { ClaudeChat, chatModels } from '../agent-chat'
-import { CHAT_MODES, type ChatEvent, type ChatImage, type ChatMode, type ChatStatus } from '../../shared/agent-chat'
+import { CHAT_MODES, type ChatEvent, type ChatImage, type ChatMode, type ChatRewindResult, type ChatSessionMeta, type ChatSessionRecord, type ChatStatus } from '../../shared/agent-chat'
+import { cleanDraft, cliSessionFile, cutSessionFile, deleteCliSession, findRewindCut, isSessionKey, listSessions, readSession, removeSession, saveSession } from '../chat-sessions'
 import { e2eMode } from '../e2e-hooks'
 import { ipcMain } from '../state'
 
@@ -111,6 +112,19 @@ function repairShell(platform: string, line: string): { file: string; args: stri
     : { file: '/bin/sh', args: ['-lc', line] }
 }
 
+/** One window's live chat process and the saved chat it belongs to. */
+interface ChatEntry {
+  chat: ClaudeChat
+  project: string
+  model: string
+  shell: boolean
+  mode: ChatMode
+  /** The saved chat (chat-sessions.ts) this process belongs to. */
+  key: string
+  /** The CLI's session id, as its init line last said it. */
+  sessionId: string
+}
+
 export function registerAgentSessionIpc(deps: {
   host: () => AgentHost | null
   /** The project an editor window has open now (the chat's folder). */
@@ -132,8 +146,9 @@ export function registerAgentSessionIpc(deps: {
   // One Claude Code process per editor window, started on the first message,
   // in the project's folder. Its MCP config names this copy's server; a turn
   // streams back as agentChat:event. A project change starts a new process.
-  const chats = new Map<number, { chat: ClaudeChat; project: string; model: string; shell: boolean; mode: ChatMode }>()
+  const chats = new Map<number, ChatEntry>()
   const cleanMode = (raw: unknown): ChatMode => (typeof raw === 'string' && (CHAT_MODES as readonly string[]).includes(raw) ? (raw as ChatMode) : 'acceptEdits')
+  const cleanKey = (raw: unknown): string => (isSessionKey(raw) ? raw : '')
   /** One message's pictures: images only, four at most, base64 (the CLI's
    *  image block); anything else is dropped. */
   const cleanImages = (raw: unknown): ChatImage[] => {
@@ -160,15 +175,18 @@ export function registerAgentSessionIpc(deps: {
     return { ok: !!entry && entry.chat.alive(), phase: entry?.chat.phase ?? 'off', harness: installed ? 'claude' : null, installed, projectPath: entry?.project }
   }
   /** Starts the window's chat process for the project it has open now, or
-   *  answers why it cannot. Nothing is started while agent access is off. */
-  const ensureChat = async (contentsId: number, model = '', shell = false, mode: ChatMode = 'acceptEdits'): Promise<ChatStatus> => {
+   *  answers why it cannot. Nothing is started while agent access is off.
+   *  `key` is the saved chat (another one ends this process); `resume` is
+   *  the CLI session it continues. */
+  const ensureChat = async (contentsId: number, model = '', shell = false, mode: ChatMode = 'acceptEdits', key = '', resume = ''): Promise<ChatStatus> => {
     const project = deps.projectPathOf(contentsId)
     const installed = !!found('claude')
     if (!project) return { ok: false, phase: 'off', harness: installed ? 'claude' : null, installed, error: 'no-project' }
+    const cwd = path.dirname(project)
     let existing = chats.get(contentsId)
-    // (Shell commands and the permission mode are fixed for a process: a
-    // change ends it, and the next message starts a new chat.)
-    if (existing && (existing.project !== project || existing.shell !== shell || existing.mode !== mode)) {
+    // (Shell commands, the permission mode and the saved chat are fixed for a
+    // process: a change ends it, and the next message starts a new chat.)
+    if (existing && (existing.project !== project || existing.shell !== shell || existing.mode !== mode || (key !== '' && existing.key !== key))) {
       existing.chat.stop()
       chats.delete(contentsId)
       existing = undefined
@@ -190,18 +208,27 @@ export function registerAgentSessionIpc(deps: {
     if (!claude) return { ok: false, phase: 'off', harness: null, installed: false, error: 'claude-missing' }
     const k = await deps.host()?.key()
     if (!k?.running) return { ok: false, phase: 'off', harness: 'claude', installed: true, error: 'server-off' }
+    // (A saved chat continues its session while the CLI still has it.)
+    const saved = resume ? cliSessionFile(cwd, resume) : null
+    const continueId = saved && fs.existsSync(saved) ? resume : ''
+    const entry: ChatEntry = { chat: null as unknown as ClaudeChat, project, model, shell, mode, key, sessionId: continueId }
     const chat = new ClaudeChat({
       program: claude,
-      cwd: path.dirname(project),
+      cwd,
       url: k.url,
       token: k.token,
       serverName: agentNameFor(CHANNEL),
       model: model || undefined,
+      resume: continueId || undefined,
       shell,
       mode,
-      send: (event) => chatEvent(contentsId, event)
+      send: (event) => {
+        if (event.type === 'status' && event.sessionId) entry.sessionId = event.sessionId
+        chatEvent(contentsId, event)
+      }
     })
-    chats.set(contentsId, { chat, project, model, shell, mode })
+    entry.chat = chat
+    chats.set(contentsId, entry)
     await chat.start()
     return { ...chatStatus(contentsId), projectPath: project }
   }
@@ -253,10 +280,10 @@ export function registerAgentSessionIpc(deps: {
     chats.delete(event.sender.id)
     return { ok: true }
   })
-  ipcMain.handle('agentChat:send', async (event, text: unknown, model: unknown, images: unknown, shell: unknown, mode: unknown): Promise<{ ok: boolean; error?: string }> => {
+  ipcMain.handle('agentChat:send', async (event, text: unknown, model: unknown, images: unknown, shell: unknown, mode: unknown, key: unknown, resume: unknown): Promise<{ ok: boolean; error?: string }> => {
     const pictures = cleanImages(images)
     if (typeof text !== 'string' || text.length > 20_000 || (!text.trim() && !pictures.length)) return { ok: false, error: 'bad-text' }
-    const started = await ensureChat(event.sender.id, cleanModel(model) ?? '', shell === true, cleanMode(mode))
+    const started = await ensureChat(event.sender.id, cleanModel(model) ?? '', shell === true, cleanMode(mode), cleanKey(key), cleanKey(resume))
     if (!started.ok) return { ok: false, error: started.error ?? 'not-started' }
     const entry = chats.get(event.sender.id)
     if (!entry) return { ok: false, error: 'not-started' }
@@ -271,6 +298,58 @@ export function registerAgentSessionIpc(deps: {
     const entry = chats.get(event.sender.id)
     entry?.chat.stop()
     chats.delete(event.sender.id)
+  })
+
+  // ---- saved chats (chat-sessions.ts) -------------------------------------
+  // The page keeps the transcript it draws and the CLI session it continues;
+  // the main process keeps them in the profile, one file per chat.
+  ipcMain.handle('agentChat:saveSession', async (event, raw: unknown): Promise<{ ok: boolean }> => {
+    const project = deps.projectPathOf(event.sender.id)
+    if (!project) return { ok: false }
+    const record = cleanDraft(raw, project)
+    return { ok: !!record && (await saveSession(app.getPath('userData'), record)) }
+  })
+  ipcMain.handle('agentChat:sessions', (event): ChatSessionMeta[] => {
+    const project = deps.projectPathOf(event.sender.id)
+    return project ? listSessions(app.getPath('userData'), project) : []
+  })
+  ipcMain.handle('agentChat:loadSession', (event, key: unknown): ChatSessionRecord | null => {
+    const project = deps.projectPathOf(event.sender.id)
+    return project && isSessionKey(key) ? readSession(app.getPath('userData'), key, project) : null
+  })
+  ipcMain.handle('agentChat:deleteSession', async (event, key: unknown): Promise<{ ok: boolean }> => {
+    const project = deps.projectPathOf(event.sender.id)
+    if (!project || !isSessionKey(key)) return { ok: false }
+    const record = await removeSession(app.getPath('userData'), key, project)
+    if (record?.sessionId) await deleteCliSession(path.dirname(project), record.sessionId)
+    return { ok: !!record }
+  })
+  /** Cuts a chat back to just before the message at `at`/`text`: the live
+   *  process ends, the CLI's own transcript loses that message and every one
+   *  after it, and the next message resumes the shortened session. */
+  ipcMain.handle('agentChat:rewind', async (event, args: unknown): Promise<ChatRewindResult> => {
+    const project = deps.projectPathOf(event.sender.id)
+    if (!project) return { ok: false, error: 'no-project' }
+    const a = (args ?? {}) as { key?: unknown; at?: unknown; text?: unknown }
+    if (!isSessionKey(a.key) || typeof a.at !== 'number' || !Number.isFinite(a.at) || typeof a.text !== 'string') return { ok: false, error: 'bad-rewind' }
+    const entry = chats.get(event.sender.id)
+    const live = entry && entry.key === a.key && entry.project === project ? entry.sessionId : ''
+    entry?.chat.stop()
+    chats.delete(event.sender.id)
+    const record = readSession(app.getPath('userData'), a.key, project)
+    const sessionId = live || record?.sessionId || ''
+    if (!sessionId) return { ok: true }
+    const file = cliSessionFile(path.dirname(project), sessionId)
+    if (!file) return { ok: true }
+    let lines: string[]
+    try {
+      lines = (await fs.promises.readFile(file, 'utf8')).split('\n')
+    } catch {
+      return { ok: true }
+    }
+    const cut = findRewindCut(lines, { at: a.at, text: a.text })
+    if (cut < 0) return { ok: false, error: 'not-found' }
+    return cutSessionFile(file, cut)
   })
 
   ipcMain.handle('agent:connect', async (_event, on: unknown) => {
@@ -295,12 +374,25 @@ export function registerAgentSessionIpc(deps: {
   }
   /** The line that repairs one program's registration with the key now in
    *  the profile (the same line step 2 copies). */
-  const repairLineFor = (which: 'claude' | 'codex' | 'opencode', k: { url: string }): string =>
+  const repairLineFor = (which: 'claude' | 'codex' | 'opencode' | 'antigravity', k: { url: string }): string =>
     which === 'claude'
       ? claudeAddLine(settingsFile(), k.url, name(), process.platform, found('claude')?.path)
       : which === 'codex'
         ? codexRegisterLine(settingsFile(), k.url, name(), process.platform, found('codex')?.path)
-        : openCodeRegisterLine(settingsFile(), k.url, name(), process.platform, found('opencode')?.path)
+        : which === 'opencode'
+          ? openCodeRegisterLine(settingsFile(), k.url, name(), process.platform, found('opencode')?.path)
+          : antigravityRegisterLine(settingsFile(), k.url, name(), process.platform)
+  const antigravityConfigFile = (): string => antigravityConfigPath(app.getPath('home'), process.platform)
+  const antigravityState = (k: { url: string; token: string }): Registration => {
+    const cfg = antigravityConfigFile()
+    let text: string | null = null
+    try {
+      text = fs.readFileSync(cfg, 'utf8')
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') return 'unknown'
+    }
+    return antigravityRegistrationState(text, { url: k.url, token: k.token, name: name() })
+  }
   const runRepairLine = async (line: string): Promise<boolean> => {
     const shell = repairShell(process.platform, line)
     return new Promise<boolean>((resolve) => {
@@ -331,7 +423,7 @@ export function registerAgentSessionIpc(deps: {
     const k = await host.key()
     if (!k?.running) return []
     const fixed: AgentId[] = []
-    const fix = async (which: 'claude' | 'codex' | 'opencode'): Promise<void> => {
+    const fix = async (which: 'claude' | 'codex' | 'opencode' | 'antigravity'): Promise<void> => {
       if (await runRepairLine(repairLineFor(which, k)).catch(() => false)) fixed.push(which)
     }
     const claude = found('claude')
@@ -356,6 +448,10 @@ export function registerAgentSessionIpc(deps: {
       const env = await tokenEnvCheck(openCodeTokenEnv())
       if (entry === 'stale' || (entry === 'current' && (env === 'different' || env === 'missing'))) await fix('opencode')
     }
+    if (found('antigravity') || fs.existsSync(antigravityConfigFile())) {
+      const st = antigravityState(k)
+      if (st === 'stale' || st === 'oldKey') await fix('antigravity')
+    }
     return fixed
   }
   ipcMain.handle('agentLink:openCodeSetup', async () => {
@@ -364,7 +460,7 @@ export function registerAgentSessionIpc(deps: {
   })
   ipcMain.handle('agentLink:antigravitySetup', async () => {
     const k = await key()
-    return k ? { command: antigravityPrintLine(settingsFile(), k.url) } : null
+    return k ? { command: antigravityRegisterLine(settingsFile(), k.url, name(), process.platform) } : null
   })
   ipcMain.handle('agentLink:claudeSetup', async () => {
     const k = await key()
@@ -393,7 +489,7 @@ export function registerAgentSessionIpc(deps: {
   // the page. Each detected program's own CLI updates its registration;
   // OpenCode's key goes into the user's environment (Windows), never the file.
   ipcMain.handle('agentLink:repair', async (_event, which: unknown): Promise<{ ok: boolean; error?: string }> => {
-    if (which !== 'claude' && which !== 'codex' && which !== 'opencode') return { ok: false, error: 'that program has no reconnect here' }
+    if (which !== 'claude' && which !== 'codex' && which !== 'opencode' && which !== 'antigravity') return { ok: false, error: 'that program has no reconnect here' }
     const k = await key()
     if (!k) return { ok: false, error: 'agent access is off' }
     return (await runRepairLine(repairLineFor(which, k))) ? { ok: true } : { ok: false, error: 'the command did not finish cleanly' }
@@ -405,9 +501,13 @@ export function registerAgentSessionIpc(deps: {
   ipcMain.handle('agentLink:setAutoRepair', async (_e, on: unknown) => (await deps.host()?.setAutoRepair(on === true)) ?? false)
   // The read-only checks: only the verdict leaves (the output may hold the key).
   ipcMain.handle('agentLink:check', async (event, which: unknown): Promise<Registration> => {
-    if (which !== 'claude' && which !== 'codex') return 'unknown'
-    const agent = found(which)
+    if (which !== 'claude' && which !== 'codex' && which !== 'antigravity') return 'unknown'
     const k = await deps.host()?.key()
+    if (which === 'antigravity') {
+      if (!found('antigravity') && !fs.existsSync(antigravityConfigFile())) return 'notInstalled'
+      return k ? antigravityState(k) : 'unknown'
+    }
+    const agent = found(which)
     if (!agent) return 'notInstalled'
     if (!k) return 'unknown'
     if (which === 'claude') {

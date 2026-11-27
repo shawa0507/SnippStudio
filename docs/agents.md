@@ -43,6 +43,8 @@ The **Chat** tab (right panel, while agent access is on) talks to the Claude Cod
 - **Model** picks from the model ids your CLI environment holds (Default is the CLI's own choice). A switch in an open chat keeps the conversation's context. **Mode** is the CLI's permission mode: Accept edits (the default), Auto (the CLI's classifier decides) or Plan.
 - **Compact** sends the CLI's own `/compact`; so does typing it. The transcript continues with the summary. Typing `/` lists the commands the CLI offers. Under the message box, **Context** shows the last turn's size against the model's window; it turns amber near 70 %, red near 90 %, and says **Compact soon** near the top.
 - Pictures: the **+** button or a paste attaches up to four images (PNG, JPEG, WebP, GIF; 8 MB each), shown as thumbnails with an × to remove one.
+- Hovering a message shows **Copy** under it; your own messages also offer **Rewind to here**, which takes that message and everything after it out of the conversation and puts the message (with its pictures) back in the box to say it differently. The CLI's own transcript is cut with it, so the next answer no longer remembers what you removed. On the first message it asks first: rewinding there ends the whole chat.
+- **Chats** (left panel) lists this project's chats. Each is saved as you talk and named by your first words; a row opens it — after quitting and reopening the app the CLI continues that same conversation — and the trash button deletes it, its CLI transcript too.
 - The app's `wait` tool is not offered in the chat: it is for an agent whose own chat is elsewhere. When the turn is done, the agent replies.
 - The **hide-panel** button in the tab strip folds the Inspector away (remembered): the preview and the timeline take the full width; the chevron at the window's right edge brings it back.
 - Only the **Claude Code** CLI is hosted in this version. Codex and OpenCode stay external agents; their adapters can come behind the same tab.
@@ -53,7 +55,7 @@ The **Chat** tab (right panel, while agent access is on) talks to the Claude Cod
 | Tool | What it does |
 |---|---|
 | `project` | The open project: size, length, version, tracks and clips, subtitles, markers, media not yet placed. Called first. |
-| `new_project` | Starts an empty project in this window (16:9, 9:16 or 1:1, optional name). Only when the open one has no unsaved changes and no waiting draft; it has no file yet. |
+| `new_project` | Starts an empty project in this window (16:9, 9:16 or 1:1, optional name). Only when the open one has no unsaved changes and no waiting draft; it has no file yet unless `save:true`. |
 | `transcript` | What is said, line by line with times; word times only for a range that must be cut finely. |
 | `frames` | The picture at 1–12 moments, drawn as the export draws it, in one image (a grid with the times). |
 | `changes` | What changed since a version it read: cheaper than reading everything again. |
@@ -61,7 +63,7 @@ The **Chat** tab (right panel, while agent access is on) talks to the Claude Cod
 | `edit` | Edits: cuts, moves, titles, transitions, templates and more, in one step. |
 | `notes` | Your work notes: it reads the ones waiting and answers them; you approve. |
 | `job` | Long work: subtitles written by SnippStudio's own speech model. The language is the project's spoken language (the Subtitles tab's choice; a new project takes the interface's language), or Turkish or English when the agent names one. The `project` answer says which it is. |
-| `code_clip` | A code clip: makes its folder with an empty `index.html` and places it; checks a page (errors, blank or unstable frames, its length). |
+| `code_clip` | A code clip: makes its folder with an empty `index.html` (giving an unsaved project a file beside Documents first if needed) and places it; checks a page (errors, blank or unstable frames, its length). |
 | `media` | The bin: brings local video, sound and picture files in by path (`import`), and points an asset at a new file of the same kind (`replace`: a rebuilt mix, a new take) without closing the app. |
 | `wait` | Waits for what you send from SnippStudio: returns the moment you send (notes, a job you wrote, your answer on the draft); if nothing comes it says "nothing yet" after a few minutes and the agent calls it again. |
 

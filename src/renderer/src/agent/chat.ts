@@ -85,6 +85,46 @@ const modeAtStart = (): ChatMode => {
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 const IMAGE_MAX = 8 * 1024 * 1024
 const IMAGES_MAX = 4
+const IMAGE_URL = /^data:([^;]+);base64,(.*)$/
+const USER_TEXT = (item: ChatItem): item is ChatTextItem => item.kind === 'text' && item.role === 'user' && !!item.text.trim()
+
+/** The saved chat's own id (a uuid the main process also checks). */
+const newKey = (): string => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+    })
+  }
+}
+
+/** The chat's name: the first thing the user said, one line, short. */
+const autoTitle = (items: ChatItem[]): string => {
+  const first = items.find(USER_TEXT)
+  return first ? first.text.replace(/\s+/g, ' ').trim().slice(0, 60) : ''
+}
+
+/** A saved transcript, kept to the shapes the page draws (ids made fresh so
+ *  they cannot collide with the ones this page has made since). */
+function loadedItems(raw: unknown[]): ChatItem[] {
+  const out: ChatItem[] = []
+  let id = 0
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const kind = (item as { kind?: unknown }).kind
+    if (kind === 'text' && typeof (item as ChatTextItem).text === 'string' && ((item as ChatTextItem).role === 'user' || (item as ChatTextItem).role === 'assistant')) {
+      out.push({ ...(item as ChatTextItem), id: ++id })
+    } else if (kind === 'tool' && typeof (item as ChatToolItem).id === 'string') {
+      out.push(item as ChatToolItem)
+    } else if (kind === 'note' && typeof (item as ChatNoteItem).tone === 'string') {
+      out.push({ ...(item as ChatNoteItem), id: ++id })
+    }
+  }
+  nextId = Math.max(nextId, id + 1)
+  return out
+}
 
 interface ChatUi {
   items: ChatItem[]
@@ -113,6 +153,23 @@ interface ChatUi {
   /** The permission mode for the next process. */
   mode: ChatMode
   setMode: (mode: ChatMode) => Promise<void>
+  /** The saved chat this transcript belongs to (chat-sessions.ts). */
+  chatKey: string
+  /** The Claude Code session it continues; empty before the first answer. */
+  sessionId: string
+  /** The session the next process was asked to continue, until its init
+   *  says which (a different one means the CLI no longer had it). */
+  resumeExpected: string | null
+  /** Saves the transcript now (after each turn and each message). */
+  save: () => Promise<void>
+  /** Drops this transcript without saving it (its record was deleted). */
+  forget: () => void
+  /** Opens a saved chat: its transcript here, its session for the next
+   *  message. */
+  openSession: (key: string) => Promise<void>
+  /** Takes this message and everything after it out, here and in the CLI's
+   *  own transcript, and puts its words and pictures back in the box. */
+  rewindTo: (id: number) => Promise<void>
   draft: string
   setDraft: (text: string) => void
   setModel: (model: string) => Promise<void>
@@ -146,6 +203,9 @@ export const useChat = create<ChatUi>((set, get) => ({
   context: null,
   shell: shellAtStart(),
   mode: modeAtStart(),
+  chatKey: newKey(),
+  sessionId: '',
+  resumeExpected: null,
   draft: '',
   setDraft: (draft) => set({ draft }),
 
@@ -248,7 +308,8 @@ export const useChat = create<ChatUi>((set, get) => ({
       error: null,
       items: [...s.items, { kind: 'text', id: uid(), role: 'user', text: trimmed, ...(urls.length ? { images: urls } : {}), at: Date.now() }]
     }))
-    const result = (await api?.agentChat?.send(trimmed, state.model, images, state.shell, state.mode).catch(() => ({ ok: false, error: 'send-failed' }))) ?? { ok: false, error: 'send-failed' }
+    void get().save()
+    const result = (await api?.agentChat?.send(trimmed, state.model, images, state.shell, state.mode, state.chatKey, state.sessionId).catch(() => ({ ok: false, error: 'send-failed' }))) ?? { ok: false, error: 'send-failed' }
     if (!result.ok) {
       // (The message never left: its pictures go back to the box.)
       set((s) => ({
@@ -259,6 +320,7 @@ export const useChat = create<ChatUi>((set, get) => ({
         attachments: state.attachments,
         items: [...s.items, { kind: 'note', id: uid(), tone: 'error', code: result.error ?? 'send-failed', at: Date.now() }]
       }))
+      void get().save()
     }
   },
 
@@ -282,8 +344,73 @@ export const useChat = create<ChatUi>((set, get) => ({
   },
 
   clear: () => {
+    const s = get()
+    // (The chat just left goes to the Chats list; a new one starts empty.)
+    if (s.items.some(USER_TEXT)) void s.save()
     void api?.agentChat?.stop().catch(() => undefined)
-    set({ items: [], attachments: [], busy: false, responded: false, thinking: false, error: null, phase: 'off', context: null })
+    get().forget()
+  },
+
+  forget: () =>
+    set({ items: [], attachments: [], busy: false, responded: false, thinking: false, error: null, phase: 'off', context: null, chatKey: newKey(), sessionId: '', resumeExpected: null }),
+
+  save: async () => {
+    const s = get()
+    if (!api?.agentChat?.saveSession || !s.items.some(USER_TEXT)) return
+    await api.agentChat.saveSession({ key: s.chatKey, title: autoTitle(s.items), sessionId: s.sessionId, items: s.items }).catch(() => undefined)
+  },
+
+  openSession: async (key) => {
+    const current = get()
+    if (current.items.some(USER_TEXT)) void current.save()
+    const record = (await api?.agentChat?.loadSession(key).catch(() => null)) ?? null
+    if (!record) return
+    await api?.agentChat?.stop().catch(() => undefined)
+    const items = loadedItems(record.items)
+    set({
+      items,
+      attachments: [],
+      busy: false,
+      responded: items.length > 0,
+      thinking: false,
+      error: null,
+      phase: 'off',
+      context: null,
+      chatKey: record.key,
+      sessionId: record.sessionId,
+      resumeExpected: record.sessionId || null
+    })
+  },
+
+  rewindTo: async (id) => {
+    const s = get()
+    const at = s.items.findIndex((item) => item.kind === 'text' && item.role === 'user' && item.id === id)
+    if (at < 0) return
+    const target = s.items[at] as ChatTextItem
+    // (The CLI's own transcript is cut first: a page that has gone back
+    // further than the model would say one thing and remember another.)
+    const result = api?.agentChat
+      ? await api.agentChat.rewind({ key: s.chatKey, at: target.at, text: target.text }).catch(() => ({ ok: false }))
+      : { ok: true }
+    if (!result.ok) {
+      set((st) => ({ items: [...st.items, { kind: 'note', id: uid(), tone: 'error', code: 'rewindFailed', at: Date.now() }] }))
+      return
+    }
+    // (The message itself comes back to the box, its pictures too, so it can
+    // be said differently and sent again.)
+    const attachments = (target.images ?? []).flatMap((url, i): ChatAttachment[] => {
+      const m = IMAGE_URL.exec(url)
+      return m ? [{ id: uid(), name: `image-${i + 1}`, mediaType: m[1], data: m[2], url }] : []
+    })
+    const kept = s.items.slice(0, at)
+    if (!kept.some(USER_TEXT)) {
+      // (Nothing is left to continue: the saved chat goes, a new one starts.)
+      void api?.agentChat?.deleteSession(s.chatKey).catch(() => undefined)
+      set({ items: [], attachments, busy: false, responded: false, thinking: false, context: null, phase: 'off', chatKey: newKey(), sessionId: '', resumeExpected: null, draft: target.text })
+      return
+    }
+    set({ items: kept, attachments, busy: false, responded: true, thinking: false, context: null, phase: 'off', resumeExpected: s.sessionId || null, draft: target.text })
+    void get().save()
   },
 
   refresh: async () => {
@@ -297,13 +424,25 @@ export const useChat = create<ChatUi>((set, get) => ({
       case 'status': {
         if (event.phase === 'ready') {
           const failed = event.mcp?.find((m) => m.status !== 'connected')
-          set((s) => ({
-            phase: 'ready',
-            installed: true,
-            ...(event.model ? { activeModel: event.model } : {}),
-            ...(event.commands?.length ? { commands: event.commands } : {}),
-            items: failed ? [...s.items, { kind: 'note', id: uid(), tone: 'error', code: 'mcp-failed', text: failed.name, at: Date.now() }] : s.items
-          }))
+          set((s) => {
+            // (The CLI starts a session of its own when the one asked for is
+            // gone: its init says so, and the page says the context is lost.)
+            const lost = !!s.resumeExpected && !!event.sessionId && s.resumeExpected !== event.sessionId
+            const notes: ChatItem[] = [
+              ...(failed ? [{ kind: 'note' as const, id: uid(), tone: 'error' as const, code: 'mcp-failed', text: failed.name, at: Date.now() }] : []),
+              ...(lost ? [{ kind: 'note' as const, id: uid(), tone: 'error' as const, code: 'sessionLost', at: Date.now() }] : [])
+            ]
+            return {
+              phase: 'ready',
+              installed: true,
+              ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+              resumeExpected: null,
+              ...(event.model ? { activeModel: event.model } : {}),
+              ...(event.commands?.length ? { commands: event.commands } : {}),
+              items: notes.length ? [...s.items, ...notes] : s.items
+            }
+          })
+          void get().save()
         } else {
           set({ phase: event.phase })
         }
@@ -350,6 +489,7 @@ export const useChat = create<ChatUi>((set, get) => ({
           ...(event.context ? { context: event.context } : {}),
           items: [...s.items, { kind: 'note', id: uid(), tone: event.isError ? 'error' : 'result', code: event.isError ? 'result-failed' : 'result', seconds: event.seconds, costUsd: event.costUsd, at: Date.now() }]
         }))
+        void get().save()
         return
       case 'error':
         set((s) => ({
@@ -359,6 +499,7 @@ export const useChat = create<ChatUi>((set, get) => ({
           error: event.message,
           items: [...s.items, { kind: 'note', id: uid(), tone: 'error', code: 'agent-error', text: event.message, at: Date.now() }]
         }))
+        void get().save()
         return
       case 'turn':
         set({ busy: event.state === 'start', ...(event.state === 'start' ? { responded: false } : {}), ...(event.state === 'end' ? { thinking: false } : {}) })

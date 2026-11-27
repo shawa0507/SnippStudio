@@ -13,7 +13,7 @@ import { projectSession, useStore } from '../state/store'
 import { codeFilms } from '../media/codefilm'
 import { checkText } from '../media/codefilm-limits'
 import { codeFilmImport } from '../media/import'
-import { saveProject } from '../media/projectio'
+import { getLastProjectPath, saveProject, saveProjectTo } from '../media/projectio'
 import { notify, t } from '../ui'
 import type { Asset } from '../types'
 import { filmCameIn, keptOf, lastRead, view } from './drafts'
@@ -140,14 +140,34 @@ async function filmOf(folder: string, length: number): Promise<{ asset: Asset; f
   return { asset, from, to: v() }
 }
 
+/** Gives an unsaved project a `.snipp` file on disk without a dialog.
+ *  Never re-saves over a file the user already chose. */
+export async function ensureProjectFile(opts?: { dir?: string; name?: string }): Promise<{ path: string; created: boolean }> {
+  const known = getLastProjectPath()
+  if (known) return { path: known, created: false }
+  if (!api?.createProjectFile) throw new Error(`Giving a project a file needs the ${PRODUCT_NAME} app.`)
+
+  const project = useStore.getState().project
+  const made = await api.createProjectFile({
+    ...(opts?.dir !== undefined ? { dir: opts.dir } : {}),
+    name: opts?.name ?? project.name
+  })
+  if (!made?.ok || !made.path) throw new Error(made?.error || 'the project could not be given a file')
+
+  const seq = useStore.getState().editSeq
+  const file = await saveProjectTo(made.path, project)
+  if (useStore.getState().editSeq === seq) useStore.getState().setDirty(false)
+  notify({
+    text: t('project.autoSaved', { file }),
+    action: { label: t('project.showInFolder'), run: () => void api?.revealPath(file) }
+  })
+  return { path: file, created: true }
+}
+
 /** create: the folder and the film; what the edit pipeline then places. */
-export async function prepareCreate(raw: unknown, projectPath: string | null, client: string, session: string): Promise<{ place: PlaceClip; head: string; assetId: string }> {
+export async function prepareCreate(raw: unknown, projectPath: string | null, client: string, session: string): Promise<{ place: PlaceClip; head: string; assetId: string; createdFile?: string }> {
   const a = createArgs(raw)
   if (!api?.codeFilm.makeAnim) throw new Error(`Code clips need the ${PRODUCT_NAME} app.`)
-  if (!projectPath) {
-    notify({ text: t('codeFilm.saveFirst'), action: { label: t('codeFilm.saveProject'), run: () => void saveProject(useStore.getState().project) } })
-    throw new Error('save the project first: the clip\'s folder goes beside the project file. The user was asked to save it.')
-  }
   // (Audit A2: the seconds are of the agent's newest read, as an edit's are
   // of its base: a change made since is carried or the op drops with its
   // reason. Asked before anything is made: a version gone is refused here.)
@@ -155,8 +175,20 @@ export async function prepareCreate(raw: unknown, projectPath: string | null, cl
   const seen = base ? keptOf(client, base).project : view().project
   // (Audit A4: a track that is not there is refused before anything is made.)
   if (a.track && !seen.tracks.some((t) => t.id === a.track)) throw new Error(`create.track: there is no track "${a.track}" (tracks: ${seen.tracks.map((t) => t.id).join(', ')}); give none for a new one over the picture.`)
+  let createdFile: string | undefined
+  if (!projectPath) {
+    const ensured = await ensureProjectFile()
+    projectPath = ensured.path
+    if (ensured.created) createdFile = ensured.path
+  }
   const made = await api.codeFilm.makeAnim(projectPath, a.name)
-  if (!made.ok || !made.folder) throw new Error(made.error === 'save the project first' ? 'save the project first: the clip\'s folder goes beside the project file.' : `create: ${made.error ?? 'the folder could not be made'}`)
+  if (!made.ok || !made.folder) {
+    if (made.error === 'save the project first') {
+      notify({ text: t('codeFilm.saveFirst'), action: { label: t('codeFilm.saveProject'), run: () => void saveProject(useStore.getState().project) } })
+      throw new Error('save the project first: the clip\'s folder goes beside the project file.')
+    }
+    throw new Error(`create: ${made.error ?? 'the folder could not be made'}`)
+  }
   const film = await filmOf(made.folder, a.end - a.start)
   // (A film of an earlier create used again: not swept while this one places.)
   if (created.has(film.asset.id) && !placing.has(film.asset.id)) placing.set(film.asset.id, [film.asset.id])
@@ -172,8 +204,9 @@ export async function prepareCreate(raw: unknown, projectPath: string | null, cl
   // (The clip is as long as its film: trimmed to the range asked when the
   // folder's page already says a longer length.)
   if (film.asset.duration > a.end - a.start + 1e-6) ops.push({ op: 'clip.trimEnd', clipId: 'clip', delta: a.end - a.start - film.asset.duration })
-  const head = `Folder: ${made.folder}${made.existed ? ' (it was there: its files are kept as they are)' : ' (index.html: an empty page)'}. Film ${sec(a.end - a.start)} s.`
-  return { place: { ops, base: v.token }, head, assetId: film.asset.id }
+  const fileLine = createdFile ? ` Project file: ${createdFile}.` : ''
+  const head = `Folder: ${made.folder}${made.existed ? ' (it was there: its files are kept as they are)' : ' (index.html: an empty page)'}. Film ${sec(a.end - a.start)} s.${fileLine}`
+  return { place: { ops, base: v.token }, head, assetId: film.asset.id, ...(createdFile ? { createdFile } : {}) }
 }
 
 /** check: the checker on the clip's film, over the seconds the clip shows. */

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 SnippStudio contributors
 import { contextBridge, ipcRenderer, sharedTexture, webUtils } from 'electron'
 import type { Slot as CodeValueSlot } from '../shared/codeval/types'
-import type { ChatEvent, ChatImage, ChatMode, ChatModels, ChatStatus } from '../shared/agent-chat'
+import type { ChatEvent, ChatImage, ChatMode, ChatModels, ChatRewindResult, ChatSessionDraft, ChatSessionMeta, ChatSessionRecord, ChatStatus } from '../shared/agent-chat'
 
 export interface ImportedFile {
   path: string
@@ -264,6 +264,9 @@ const api = {
     opts?: { backup?: string }
   ): Promise<{ saved: boolean; path?: string; error?: string; diskTime?: number }> =>
     ipcRenderer.invoke('project:save-direct', { path: p, json, force: force === true, ...(typeof opts?.backup === 'string' ? { backup: opts.backup } : {}) }),
+  /** Allocates and registers a new .snipp path without showing a save dialog. */
+  createProjectFile: (args?: { dir?: string; name?: string }): Promise<{ ok: boolean; path?: string; error?: string }> =>
+    ipcRenderer.invoke('project:create-file', args ?? {}),
   /** Tells the main process whether the project has unsaved changes. */
   setDirty: (dirty: boolean): void => ipcRenderer.send('app:dirty', dirty),
   /** Holds the PC awake (on) or lets go (off) while an export or a
@@ -652,12 +655,12 @@ const api = {
     codexSetup: (): Promise<{ command: string; register: string; launch?: string; environment: string; persist?: string; name: string; variable: string } | null> => ipcRenderer.invoke('agentLink:codexSetup'),
     /** Whether the user's Codex variable holds this copy's key: a verdict, never a value. */
     codexEnv: (): Promise<'same' | 'different' | 'missing' | 'unknown'> => ipcRenderer.invoke('agentLink:codexEnv'),
-    /** Read only (`claude mcp get`, `codex mcp get --json`): the verdict only. */
-    check: (which: 'claude' | 'codex'): Promise<AgentRegistration> => ipcRenderer.invoke('agentLink:check', which),
-    /** Runs the step-2 line itself (Claude Code, Codex, OpenCode): a
+    /** Read only (`claude mcp get`, `codex mcp get --json`, Antigravity `mcp_config.json`): the verdict only. */
+    check: (which: 'claude' | 'codex' | 'antigravity'): Promise<AgentRegistration> => ipcRenderer.invoke('agentLink:check', which),
+    /** Runs the step-2 line itself (Claude Code, Codex, OpenCode, Antigravity): a
      *  reconnect without the command window. The key stays in the profile's
      *  file (an environment variable at most). */
-    repair: (which: 'claude' | 'codex' | 'opencode'): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agentLink:repair', which),
+    repair: (which: 'claude' | 'codex' | 'opencode' | 'antigravity'): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('agentLink:repair', which),
     autoRepair: (): Promise<boolean> => ipcRenderer.invoke('agentLink:autoRepair'),
     setAutoRepair: (on: boolean): Promise<boolean> => ipcRenderer.invoke('agentLink:setAutoRepair', on === true),
     renewKey: (): Promise<AgentSessionStatus | null> => ipcRenderer.invoke('agentLink:renewKey'),
@@ -689,9 +692,19 @@ const api = {
     setShell: (on: boolean): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:setShell', on === true),
     /** The permission mode: ends the chat; the next message starts with it. */
     setMode: (mode: ChatMode): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:setMode', mode),
-    send: (text: string, model?: string, images?: ChatImage[], shell?: boolean, mode?: ChatMode): Promise<{ ok: boolean; error?: string }> =>
-      ipcRenderer.invoke('agentChat:send', text, model ?? '', images ?? [], shell === true, mode ?? 'acceptEdits'),
+    /** `key` is the saved chat, `resume` the CLI session to continue (a new
+     *  process starts with them when the old one ended). */
+    send: (text: string, model?: string, images?: ChatImage[], shell?: boolean, mode?: ChatMode, key?: string, resume?: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('agentChat:send', text, model ?? '', images ?? [], shell === true, mode ?? 'acceptEdits', key ?? '', resume ?? ''),
     stop: (): Promise<void> => ipcRenderer.invoke('agentChat:stop'),
+    /** The chat's transcript and CLI session, saved for the Chats list. */
+    saveSession: (draft: ChatSessionDraft): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:saveSession', draft),
+    sessions: (): Promise<ChatSessionMeta[]> => ipcRenderer.invoke('agentChat:sessions'),
+    loadSession: (key: string): Promise<ChatSessionRecord | null> => ipcRenderer.invoke('agentChat:loadSession', key),
+    deleteSession: (key: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('agentChat:deleteSession', key),
+    /** Cuts this chat back to just before the message at `at` (words and
+     *  time): the CLI session loses it and everything after. */
+    rewind: (args: { key: string; at: number; text: string }): Promise<ChatRewindResult> => ipcRenderer.invoke('agentChat:rewind', args),
     onEvent: (cb: (event: ChatEvent) => void): (() => void) => {
       const listener = (_e: unknown, payload: { event: ChatEvent }): void => cb(payload.event)
       ipcRenderer.on('agentChat:event', listener)

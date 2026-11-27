@@ -26,7 +26,7 @@ import type { NoteStatus } from '../types'
 import { analyze, analyzeKey, ANALYZE_KINDS, type AnalysisResult, type AnalyzeArgs } from './analyze'
 import { resultText } from './answers'
 import { editTool, type EditContext } from './edit'
-import { checkClip, createDone, prepareCreate } from './code-clip'
+import { checkClip, createDone, ensureProjectFile, prepareCreate } from './code-clip'
 import { contactSheet, FRAMES_MAX_PIXELS } from './frames'
 import { changesText, projectText, rangeContext, sec, transcriptText } from './format'
 import { acceptPreview, callsMoving, changesFor, currentDraft, heldBy, draftState, forgetAgentSession, forgetOwnWrites, forgetSessionNews, landing, liveToken, markDisconnected, rejectDraft, removeRange, reviveOp, takeNews, view, watchLive, type AcceptPlan } from './drafts'
@@ -43,7 +43,7 @@ import { wroteOf } from './activity'
 import { answerSize, type AnswerSize } from './tokens'
 import { rawAnalysis, rawFrames, rawProject, rawTokens, rawTranscript, SAME_AS_RAW, type RawAnswer } from './raw'
 import { planArg, PLAN_NOTED } from './plan'
-import { enrichAsset, serializeProject, setLastProjectPath } from '../media/projectio'
+import { enrichAsset, saveProjectTo, serializeProject, setLastProjectPath } from '../media/projectio'
 import { importWrittenFiles, probeMedia } from '../media/import'
 import { dropInput, releaseAllMedia } from '../media/sources'
 import { dropPeaks } from '../media/peakCache'
@@ -225,7 +225,7 @@ async function frames(args: Record<string, unknown>, s: Session, callId = ''): P
 /** new_project: an empty project in this window, and the session goes with
  *  it. Only a clean project with no waiting draft: nothing of the user's is
  *  thrown away. */
-function newProjectTool(a: Record<string, unknown>, s: Session): Result {
+async function newProjectTool(a: Record<string, unknown>, s: Session): Promise<Result> {
   if (currentDraft()) throw new Error('A draft is waiting for the user; a new project waits until it is accepted or rejected. Nothing was changed.')
   if (useStore.getState().dirty) throw new Error('The open project has unsaved changes; a new one is started only after the user saves or discards it. Nothing was changed.')
   const aspect = a.aspect === undefined ? '16:9' : a.aspect
@@ -243,6 +243,10 @@ function newProjectTool(a: Record<string, unknown>, s: Session): Result {
   s.taken.clear()
   forgetOwnWrites(s.id)
   const p = useStore.getState().project
+  if (a.save === true) {
+    const { path } = await ensureProjectFile()
+    return text(`New project "${p.name}" (${p.settings.width}×${p.settings.height}, ${p.settings.fps} fps). File: ${path}. Call project for its tracks.`)
+  }
   return text(`New project "${p.name}" (${p.settings.width}×${p.settings.height}, ${p.settings.fps} fps). It has no file yet: the user saves it. Call project for its tracks.`)
 }
 
@@ -647,6 +651,7 @@ function editContext(call: AgentCall, s: Session, cancelled: () => boolean): Edi
 
 /** Does this call change the project (DENEME-4, item 9: one agent at a time)? */
 export function writes(tool: string, a: Record<string, unknown>): boolean {
+  if (tool === 'project') return a.save !== undefined
   if (tool === 'edit') return !(Array.isArray(a.ops) && a.ops.length === 1 && (a.ops[0] as { op?: unknown } | null)?.op === 'help')
   if (tool === 'media' || tool === 'new_project') return true
   if (tool === 'code_clip') return a.create !== undefined
@@ -666,6 +671,18 @@ async function run(call: AgentCall, s: Session, cancelled: () => boolean): Promi
   if (writes(call.tool, a)) checkWriter(s.id, s.client, (id) => sessions.has(id))
   switch (call.tool) {
     case 'project': {
+      let projectPath = call.projectPath
+      if (a.save !== undefined) {
+        if (!a.save || typeof a.save !== 'object' || Array.isArray(a.save)) throw new Error('project.save: { dir?, name? }.')
+        const s0 = a.save as { dir?: unknown; name?: unknown }
+        if (s0.dir !== undefined && typeof s0.dir !== 'string') throw new Error('project.save.dir: a local folder path.')
+        if (s0.name !== undefined && typeof s0.name !== 'string') throw new Error('project.save.name: a file name.')
+        const ensured = await ensureProjectFile({
+          ...(typeof s0.dir === 'string' ? { dir: s0.dir } : {}),
+          ...(typeof s0.name === 'string' ? { name: s0.name } : {})
+        })
+        projectPath = ensured.path
+      }
       const v = view(a.state, s.client)
       const d = currentDraft()
       const st = useStore.getState()
@@ -676,7 +693,7 @@ async function run(call: AgentCall, s: Session, cancelled: () => boolean): Promi
         state: v.kind,
         draft: d ? `${d.entries.length} call${d.entries.length === 1 ? '' : 's'} pending` : undefined,
         selection: currentSelection(st.selectedClipIds, marks),
-        path: call.projectPath
+        path: projectPath
       }, typeof a.track === 'string' ? a.track : undefined)
       const part = typeof a.track === 'string' ? a.track : undefined
       rawOf.set(call.id, () => rawProject(v.project, part))
@@ -711,7 +728,13 @@ async function run(call: AgentCall, s: Session, cancelled: () => boolean): Promi
         const p = await prepareCreate(a.create, call.projectPath, s.client, s.id)
         const direct = (a.create as { direct?: unknown }).direct === true
         try {
-          return { head: p.head, out: await editTool({ ...(p.place as unknown as Record<string, unknown>), ...(direct ? { direct: true } : {}) }, editContext(call, s, cancelled)) }
+          const out = await editTool({ ...(p.place as unknown as Record<string, unknown>), ...(direct ? { direct: true } : {}) }, editContext(call, s, cancelled))
+          if (p.createdFile) {
+            const seq = useStore.getState().editSeq
+            await saveProjectTo(p.createdFile, useStore.getState().project)
+            if (useStore.getState().editSeq === seq) useStore.getState().setDirty(false)
+          }
+          return { head: p.head, out }
         } finally {
           // (Its film may leave the project now if no clip uses it: audit A3.)
           createDone(p.assetId)

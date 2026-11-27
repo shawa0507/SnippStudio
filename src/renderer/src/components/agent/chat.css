@@ -26,12 +26,22 @@
 
 .chat-msg { display: flex; }
 .chat-msg.is-user { justify-content: flex-end; }
+.chat-msg-body { display: flex; flex-direction: column; align-items: flex-start; max-width: 92%; min-width: 0; }
+.chat-msg.is-user .chat-msg-body { align-items: flex-end; }
 .chat-bubble {
-  max-width: 92%; padding: var(--space-2) var(--space-3);
+  max-width: 100%; padding: var(--space-2) var(--space-3);
   border-radius: var(--r-card); background: var(--bg-raised);
   color: var(--text); font-size: var(--fs-12); line-height: 1.5;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+/* Under a message, once it is hovered or one of its buttons is reached by
+   the keyboard: its words on the clipboard, and for the user's own, the way
+   back to just before it. The row keeps its height (nothing jumps). */
+.chat-msg-actions { display: flex; gap: 2px; height: 22px; align-items: center; opacity: 0; pointer-events: none; transition: opacity 0.12s ease; }
+.chat-msg:hover .chat-msg-actions, .chat-msg:focus-within .chat-msg-actions { opacity: 1; pointer-events: auto; }
+.chat-msg-actions .ui-btn { color: var(--text-3); }
+.chat-msg-actions .ui-btn:hover { color: var(--text); }
+html.motion-off .chat-msg-actions { transition: none; }
 .chat-msg.is-user .chat-bubble { background: var(--agent); color: var(--on-agent); }
 .chat-para { white-space: pre-wrap; }
 /* The assistant's markdown: paragraphs, lists and quotes as a chat draws

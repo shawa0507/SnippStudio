@@ -4,13 +4,13 @@
 // into its file, a file beside the video, the clipboard. Moved out of
 // registerIpc (src/main/index.ts) in SnippStudio phase 2B; registerIpc calls it
 // where these stood.
-import { clipboard, dialog } from 'electron'
+import { app, clipboard, dialog } from 'electron'
 import { filterName } from '../strings-main'
 import type { WebContents } from 'electron'
 import { promises as fs } from 'node:fs'
 import type { FileHandle } from 'node:fs/promises'
 import path from 'node:path'
-import { isSafeOutput } from '../security'
+import { isLocalFilePath, isSafeOutput } from '../security'
 import { checkReplaceable, onePerPath, renameWithRetry, writeFileAtomic, writeViaPart } from '../safe-write'
 import { withRelativePaths } from '../project-media'
 import { e2eMode, testBuild } from '../e2e-hooks'
@@ -92,6 +92,47 @@ export function registerFileIpc(): void {
       return { saved: true, path: result.filePath }
     }
   )
+
+  // Give an unsaved project a .snipp path without a native save dialog
+  // (e.g. when an agent creates a code clip or calls project({save})).
+  ipcMain.handle('project:create-file', async (event, rawArgs?: unknown) => {
+    const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as { dir?: unknown; name?: unknown }
+    const docs = app.getPath('documents')
+    if (!isLocalFilePath(docs)) return { ok: false, error: 'Only local drive paths are supported in offline mode' }
+
+    let dir: string
+    if (args.dir !== undefined && args.dir !== null && args.dir !== '') {
+      if (typeof args.dir !== 'string' || !isLocalFilePath(args.dir)) {
+        return { ok: false, error: 'Only local drive paths are supported in offline mode' }
+      }
+      dir = normalize(args.dir)
+    } else {
+      dir = path.join(docs, PRODUCT_NAME)
+    }
+
+    const safe =
+      String(typeof args.name === 'string' && args.name.trim() ? args.name : 'project')
+        .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+        .replace(/[. ]+$/g, '')
+        .trim()
+        .slice(0, 80) || 'project'
+
+    await fs.mkdir(dir, { recursive: true })
+
+    // Never overwrite an existing project: Name.snipp, Name 2.snipp, ...
+    let target = path.join(dir, `${safe}.snipp`)
+    for (let n = 2; await fs.stat(target).catch(() => null); n++) {
+      target = path.join(dir, `${safe} ${n}.snipp`)
+    }
+
+    const p = normalize(target)
+    knownProjectPaths.add(p)
+    // Set currentProjectPath synchronously here so the next IPC
+    // (codefilm:make-anim) sees it without racing api.setCurrentProjectPath.
+    editorState(event.sender).currentProjectPath = p
+
+    return { ok: true, path: p }
+  })
 
   // Two-step save for long renders: pick the destination BEFORE producing the
   // data, then write to it after. Lets the export dialog ask "where?" up front

@@ -383,6 +383,22 @@ export function noteNewerFile(path: string | null, format: number | undefined): 
   newerFile = path && format !== undefined && format > CURRENT_FORMAT ? { path, format } : null
 }
 
+/** Writes `project` directly to a known or newly allocated `filePath` without a dialog. */
+export async function saveProjectTo(filePath: string, project: Project): Promise<string> {
+  if (!api) throw new Error(`Saving requires the ${PRODUCT_NAME} app.`)
+  const saveId = newSaveId()
+  const json = serializeProject(project, { saveId })
+
+  const r = await api.saveProjectDirect(filePath, json, true)
+  if (!r.saved || !r.path) throw new Error(r.error || 'the project file could not be written')
+
+  // Sets lastProjectPath, informs main of the window's path, rekeys version/restore
+  // points, and triggers savedListeners (withRelativePaths runs inside project:save-direct).
+  projectWritten(r.path, saveId, 'saveAs')
+  backupNext = { file: r.path, when: 'auto' }
+  return r.path
+}
+
 export async function saveProject(project: Project, opts: { quick?: boolean; force?: boolean; overNewer?: boolean; auto?: boolean } = {}): Promise<boolean> {
   const saveId = newSaveId()
   const json = serializeProject(project, { saveId })

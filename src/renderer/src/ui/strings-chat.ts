@@ -64,5 +64,21 @@ export const STRINGS_CHAT = {
   'chat.err.notStarted': { en: 'The chat could not start.', tr: 'Sohbet başlatılamadı.' },
   'chat.err.sendFailed': { en: 'The message could not be sent.', tr: 'İleti gönderilemedi.' },
   'chat.err.badText': { en: 'The message is empty or too long.', tr: 'İleti boş ya da çok uzun.' },
-  'chat.err.agentError': { en: 'The agent reported an error.', tr: 'Ajan bir hata bildirdi.' }
+  'chat.err.agentError': { en: 'The agent reported an error.', tr: 'Ajan bir hata bildirdi.' },
+  'chat.copy': { en: 'Copy', tr: 'Kopyala' },
+  'chat.copied': { en: 'Copied', tr: 'Kopyalandı' },
+  'chat.rewind': { en: 'Rewind to here', tr: 'Buraya geri sar' },
+  'chat.rewind.hint': { en: 'Takes this message and everything after it out of the conversation and puts it back in the box.', tr: 'Bu iletiyi ve sonrasındaki her şeyi sohbetten çıkarır ve iletiyi kutuya geri koyar.' },
+  'chat.rewindAllAsk': { en: 'Clear the whole chat?', tr: 'Tüm sohbet silinsin mi?' },
+  'chat.rewindAllText': { en: 'This is the first message: rewinding to it clears every message and the saved history of this chat; it comes back in the box.', tr: 'Bu ilk ileti: buraya geri sarmak tüm iletileri ve bu sohbetin kayıtlı geçmişini siler; ileti kutuya geri gelir.' },
+  'chat.rewindAllOk': { en: 'Clear chat', tr: 'Sohbeti sil' },
+  'chat.rewindFailed': { en: 'The conversation could not be cut back here; nothing changed.', tr: 'Konuşma buraya geri alınamadı; hiçbir şey değişmedi.' },
+  'chat.sessionLost': { en: "This chat's earlier context could not be continued; it goes on without it.", tr: 'Bu sohbetin önceki bağlamı sürdürülemedi; o olmadan devam ediyor.' },
+  'chats.title': { en: 'Chats', tr: 'Sohbetler' },
+  'chats.empty': { en: 'No saved chats for this project yet. The Chat tab saves them as you go.', tr: 'Bu proje için henüz kayıtlı sohbet yok. Sohbet sekmesi konuştukça kaydeder.' },
+  'chats.untitled': { en: 'Untitled chat', tr: 'Adsız sohbet' },
+  'chats.current': { en: 'Open now', tr: 'Şu an açık' },
+  'chats.delete': { en: 'Delete chat', tr: 'Sohbeti sil' },
+  'chats.deleteAsk': { en: 'Delete this chat?', tr: 'Bu sohbet silinsin mi?' },
+  'chats.deleteOk': { en: 'Delete', tr: 'Sil' }
 }
